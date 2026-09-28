@@ -1,0 +1,5 @@
+/* Tailwind læser kun klasserne i Rust-koden. assets/ indeholder OpenLayers,
+   hvis ord ellers ville blive til klasser ingen bruger. */
+@import "tailwindcss" source(none);
+
+@source "./src/**/*.rs";
