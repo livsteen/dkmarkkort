@@ -51,7 +51,7 @@ brew install gdal tippecanoe poppler
 cargo install topcoat-cli --version 0.9.0 --locked
 
 cargo run -p dkmarkkort-pipeline      # henter ~350 MB og bygger data/
-./run.sh                              # udviklingsserver på 0.0.0.0:3000, genstarter en kørende
+sh run.sh                             # udviklingsserver på 0.0.0.0:3000, genstarter en kørende
 ```
 
 Pipelinen tager `--aar` og `--data`. Serveren læser data fra `MARKKORT_DATA`
