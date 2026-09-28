@@ -1,6 +1,9 @@
 //! Serverens adgang til databasen og tiles'ene. Begge er SQLite-filer som
 //! pipelinen har bygget, og begge åbnes skrivebeskyttet: en ny udgave af data
 //! kræver at serveren startes igen.
+//!
+//! Det der ikke ændrer sig og bruges ved hvert opslag, læses én gang ved
+//! start: landsdelene, optællingerne og listen over bedrifter.
 
 use std::{collections::HashMap, path::Path};
 
@@ -25,8 +28,18 @@ pub struct Udgave {
     pub sidst_aendret: String,
 }
 
+/// En bedrift med marker på kortet.
+pub struct Bedrift {
+    pub cvr: String,
+    pub marker: i64,
+}
+
 pub struct Data {
+    pub database: SqlitePool,
     pub tiles: SqlitePool,
+    /// Sorteret efter CVR-nummer, så en søgning på de første cifre er et
+    /// udsnit af listen.
+    pub bedrifter: Vec<Bedrift>,
     pub landsdele: Vec<Landsdel>,
     pub marker_i_alt: i64,
     pub marker_pr_gruppe: HashMap<Gruppe, i64>,
@@ -35,7 +48,7 @@ pub struct Data {
 
 impl Data {
     /// Læser det der ikke ændrer sig mens serveren kører, og holder
-    /// forbindelsen til tiles'ene åben.
+    /// forbindelserne åbne til opslagene.
     pub async fn aabn(mappe: &Path) -> Result<Self, String> {
         let database = pool(&mappe.join(DATABASE_FIL)).await?;
         let tiles = pool(&mappe.join(TILES_FIL)).await?;
@@ -84,9 +97,35 @@ impl Data {
             sidst_aendret,
         });
 
-        database.close().await;
+        // Marker uden CVR-nummer hører ikke til nogen bedrift, man kan søge
+        // frem. De kan stadig vælges på kortet.
+        let bedrifter = sqlx::query_as::<_, (String, i64)>(
+            "SELECT CVR, COUNT(*) FROM marker WHERE CVR <> '' GROUP BY CVR ORDER BY CVR",
+        )
+        .fetch_all(&database)
+        .await
+        .map_err(fejl("bedrifter"))?
+        .into_iter()
+        .map(|(cvr, marker)| Bedrift { cvr, marker })
+        .collect();
+
+        // Udstrækningen pr. mark kom til i en senere udgave af pipelinen. En
+        // database uden den skal bygges igen, og det er bedre at sige det nu
+        // end ved første klik.
+        sqlx::query("SELECT vest, syd, oest, nord FROM marker LIMIT 1")
+            .fetch_optional(&database)
+            .await
+            .map_err(|e| {
+                format!(
+                    "{DATABASE_FIL} mangler markernes udstrækning ({e}) — \
+                     kør `cargo run -p dkmarkkort-pipeline` igen"
+                )
+            })?;
+
         Ok(Data {
+            database,
             tiles,
+            bedrifter,
             landsdele,
             marker_i_alt,
             marker_pr_gruppe,

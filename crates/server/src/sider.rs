@@ -48,6 +48,16 @@ const BAGGRUNDE: [Baggrund; 2] = [
 
 const OVERSKRIFT: &str = "mb-1.5 block text-xs font-medium text-stone-500";
 
+/// De to paneler over kortet. De kan trækkes rundt i deres hoved, og deres
+/// placering står derfor i `style` frem for i en klasse: `markkort.js`
+/// overtager den første gang panelet flyttes.
+const PANEL: &str = "absolute z-10 flex max-h-[calc(100dvh-1.5rem)] w-80 max-w-[calc(100vw-1.5rem)] flex-col rounded-xl border border-stone-200 bg-white/95 text-sm text-stone-800 shadow-md backdrop-blur";
+const HOVED: &str =
+    "flex cursor-grab touch-none items-center gap-2 px-4 py-3 select-none active:cursor-grabbing";
+const HOVEDKNAP: &str = "-my-1 -mr-2 rounded-md px-2 py-1 text-stone-500 hover:bg-stone-100 hover:text-stone-900 aria-[expanded=false]:-rotate-90";
+const KROP: &str = "min-h-0 space-y-4 overflow-y-auto border-t border-stone-200 px-4 py-3";
+const FORSLAG: &str = "flex cursor-pointer items-center gap-2 px-2 py-1 aria-selected:bg-stone-100 data-valgt:font-semibold";
+
 #[page("/")]
 async fn kort(cx: &Cx) -> Result<impl View> {
     let data: &Data = app_context(cx);
@@ -71,19 +81,66 @@ async fn kort(cx: &Cx) -> Result<impl View> {
                     data-kreditering=(kreditering)
                 ></div>
 
-                <details
-                    open=""
-                    class="group absolute top-3 left-3 z-10 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border border-stone-200 bg-white/95 text-sm text-stone-800 shadow-md backdrop-blur"
+                <section
+                    id="panel"
+                    class=(PANEL)
+                    style="top: 0.75rem; left: 0.75rem"
+                    aria-label="Markkort"
                 >
-                    <summary class="flex cursor-pointer items-baseline justify-between gap-2 px-4 py-3 select-none [&::-webkit-details-marker]:hidden">
-                        <span class="text-base font-semibold">"Markkort " (aar)</span>
-                        <span class="text-xs text-stone-500">
-                            (tal(data.marker_i_alt)) " marker"
-                            <span class="ml-1 inline-block group-open:rotate-180" aria-hidden="true">"⌄"</span>
-                        </span>
-                    </summary>
+                    <header class=(HOVED) data-haandtag="" title="Træk for at flytte panelet">
+                        <h1 class="grow text-base font-semibold">"Markkort " (aar)</h1>
+                        <span class="text-xs text-stone-500">(tal(data.marker_i_alt)) " marker"</span>
+                        <button
+                            type="button"
+                            class=(HOVEDKNAP)
+                            data-minimer=""
+                            aria-expanded="true"
+                            aria-controls="panel-indhold"
+                            title="Minimér panelet"
+                        >
+                            <span aria-hidden="true">"⌄"</span>
+                        </button>
+                    </header>
 
-                    <div class="max-h-[calc(100dvh-6rem)] space-y-4 overflow-y-auto border-t border-stone-200 px-4 py-3">
+                    <div id="panel-indhold" class=(KROP)>
+                        <section>
+                            <label for="soeg" class=(OVERSKRIFT)>"Find en bedrift og dens marker"</label>
+                            <div
+                                id="bedrift"
+                                hidden=""
+                                class="mb-1.5 flex items-center gap-2 rounded-md bg-stone-100 py-1 pr-1 pl-2"
+                            >
+                                <span class="grow">"CVR " <span class="tabular-nums" data-felt="cvr"></span></span>
+                                <button
+                                    type="button"
+                                    id="bedrift-ryd"
+                                    class="rounded px-1.5 text-stone-500 hover:bg-stone-200 hover:text-stone-900"
+                                    title="Søg efter en anden bedrift"
+                                >
+                                    "✕"
+                                </button>
+                            </div>
+                            <input
+                                id="soeg"
+                                type="search"
+                                autocomplete="off"
+                                spellcheck="false"
+                                placeholder="CVR-nummer"
+                                role="combobox"
+                                aria-autocomplete="list"
+                                aria-controls="forslag"
+                                aria-expanded="false"
+                                class="block w-full rounded-md border border-stone-300 bg-white px-2 py-1.5"
+                            >
+                            <ul
+                                id="forslag"
+                                role="listbox"
+                                hidden=""
+                                class="mt-1 max-h-64 overflow-y-auto rounded-md border border-stone-200 bg-white py-1"
+                            ></ul>
+                            <p id="soeg-besked" class="mt-1 text-xs text-stone-500 empty:hidden"></p>
+                        </section>
+
                         <label class="block">
                             <span class=(OVERSKRIFT)>"Landsdel"</span>
                             <select
@@ -147,10 +204,71 @@ async fn kort(cx: &Cx) -> Result<impl View> {
                         </section>
 
                         <p class="text-xs text-stone-500">
+                            "Klik på en mark for at se hvad der dyrkes på den. "
                             <a class="underline hover:text-stone-800" href="/kilder">"Kilder og vilkår"</a>
                         </p>
                     </div>
-                </details>
+                </section>
+
+                <section
+                    id="info"
+                    hidden=""
+                    class=(PANEL)
+                    style="top: 0.75rem; right: 0.75rem"
+                    aria-live="polite"
+                    aria-label="Den valgte mark"
+                >
+                    <header class=(HOVED) data-haandtag="" title="Træk for at flytte panelet">
+                        <span
+                            class="size-3.5 shrink-0 rounded-full ring-1 ring-black/20"
+                            data-felt="farve"
+                        ></span>
+                        <h2 class="grow text-base font-semibold">"Mark " <span data-felt="marknr"></span></h2>
+                        <button type="button" class=(HOVEDKNAP) data-luk="" title="Fravælg marken">"✕"</button>
+                    </header>
+                    <div class=(KROP)>
+                        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 [&_dt]:text-stone-500">
+                            <dt>"Afgrøde"</dt>
+                            <dd>
+                                <span data-felt="afgroede"></span>
+                                <span class="text-xs text-stone-500 tabular-nums" data-felt="afgroedekode"></span>
+                            </dd>
+                            <dt>"Gruppe"</dt>
+                            <dd data-felt="gruppe"></dd>
+                            <dt>"Afsnit"</dt>
+                            <dd data-felt="afsnit"></dd>
+                            <dt>"Areal"</dt>
+                            <dd class="tabular-nums" data-felt="areal"></dd>
+                            <dt>"Landsdel"</dt>
+                            <dd data-felt="landsdel"></dd>
+                            <dt>"Bedrift"</dt>
+                            <dd>
+                                <button
+                                    type="button"
+                                    id="info-bedrift"
+                                    class="text-left tabular-nums underline hover:text-stone-600 disabled:no-underline"
+                                    title="Vis bedriftens marker"
+                                    data-felt="cvr"
+                                ></button>
+                            </dd>
+                        </dl>
+                    </div>
+                </section>
+
+                <template id="skabelon-bedrift">
+                    <li role="option" class=(FORSLAG)>
+                        <span class="grow">"CVR " <span class="tabular-nums" data-felt="cvr"></span></span>
+                        <span class="text-xs text-stone-500 tabular-nums" data-felt="marker"></span>
+                    </li>
+                </template>
+                <template id="skabelon-mark">
+                    <li role="option" class=(FORSLAG)>
+                        <span class="size-3 shrink-0 rounded-full ring-1 ring-black/20" data-felt="farve"></span>
+                        <span class="w-12 shrink-0 font-medium tabular-nums" data-felt="marknr"></span>
+                        <span class="grow truncate" data-felt="afgroede"></span>
+                        <span class="text-xs text-stone-500 tabular-nums" data-felt="areal"></span>
+                    </li>
+                </template>
             </main>
 
             <script src=(OL_JS)></script>
