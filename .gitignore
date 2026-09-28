@@ -1,0 +1,8 @@
+/target/
+.DS_Store
+
+# Pipelinens downloads, mellemfiler og resultat. Kan altid bygges igen.
+/data/raw/
+/data/work/
+/data/*.gpkg
+/data/*.mbtiles

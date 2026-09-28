@@ -1,5 +1,7 @@
-# hello-platform
-Rust web service used to build and test the CI/CD pipeline.
+# dkmarkkort
+Kort over alle indberettede danske marker. Rust-workspace med server (tokio, topcoat, Tailwind), pipeline og core; data i SQLite som GeoPackage og MBTiles. Se README.md.
+
+Kode, kommentarer, dokumentation og brugerflade er på dansk. Identifikatorer staves uden æøå (afgroede, vaelg, aabn).
 
 ## Workflow
 - Never commit to main. Always work on a branch (feat/…, fix/…, chore/…).
