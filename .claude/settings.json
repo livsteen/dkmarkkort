@@ -8,7 +8,8 @@
       "Bash(cargo fmt *)",
       "Bash(git status *)",
       "Bash(git diff *)",
-      "Bash(git log *)"
+      "Bash(git log *)",
+      "Edit(/**)"
     ],
     "ask": ["Bash(gh pr merge *)"]
   },
