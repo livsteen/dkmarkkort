@@ -46,6 +46,21 @@ impl Gruppe {
         Gruppe::ALLE.into_iter().find(|g| g.noegle() == noegle)
     }
 
+    /// Gruppens nummer i oversigtens pixels. Det står i data som pipelinen
+    /// har bygget, så et nummer skifter ikke betydning; en ny gruppe får et
+    /// nyt. Der er plads til 1–15.
+    pub fn nr(self) -> u8 {
+        match self {
+            Gruppe::Korn => 1,
+            Gruppe::GraesOgGrovfoder => 2,
+            Gruppe::FroeOlieOgBaelgsaed => 3,
+            Gruppe::KartoflerRoerOgHavebrug => 4,
+            Gruppe::NaturOgMiljoetilsagn => 5,
+            Gruppe::SkovEnergiOgOevrige => 6,
+            Gruppe::UkendtKode => 7,
+        }
+    }
+
     pub fn navn(self) -> &'static str {
         match self {
             Gruppe::Korn => "Korn til modenhed",
@@ -176,5 +191,14 @@ mod tests {
         noegler.sort_unstable();
         noegler.dedup();
         assert_eq!(noegler.len(), Gruppe::ALLE.len());
+    }
+
+    #[test]
+    fn numre_er_unikke_og_har_plads_i_en_pixel() {
+        let mut numre: Vec<_> = Gruppe::ALLE.iter().map(|g| g.nr()).collect();
+        assert!(numre.iter().all(|nr| (1..=15).contains(nr)));
+        numre.sort_unstable();
+        numre.dedup();
+        assert_eq!(numre.len(), Gruppe::ALLE.len());
     }
 }

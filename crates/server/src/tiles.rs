@@ -1,9 +1,12 @@
-//! Vektortiles fra MBTiles-filen.
+//! Tiles fra MBTiles-filerne: markerne som vektortiles og oversigten som
+//! PNG'er.
 //!
 //! Browseren beder om `/tiles/{z}/{x}/{y}` og får markerne i den tile, som
-//! tippecanoe har bygget og gzippet dem. Filen er en SQLite-database, så et
+//! tippecanoe har bygget og gzippet dem. Oversigten, som GDAL har tegnet,
+//! ligger på `/overblik/{z}/{x}/{y}`. Filerne er SQLite-databaser, så et
 //! opslag er én primærnøgle; serveren pakker hverken ud eller om.
 
+use sqlx::SqlitePool;
 use topcoat::{
     Result,
     context::{Cx, app_context},
@@ -23,6 +26,18 @@ const CACHE: &str = "public, max-age=3600";
 
 #[route(GET "/tiles/{z}/{x}/{y}")]
 async fn tile(cx: &Cx) -> Result<Response> {
+    let data: &Data = app_context(cx);
+    fra_mbtiles(cx, &data.tiles, "application/vnd.mapbox-vector-tile").await
+}
+
+#[route(GET "/overblik/{z}/{x}/{y}")]
+async fn overblik(cx: &Cx) -> Result<Response> {
+    let data: &Data = app_context(cx);
+    fra_mbtiles(cx, &data.overblik, "image/png").await
+}
+
+/// Tilen på stien `{z}/{x}/{y}` fra MBTiles-filen i `tiles`.
+async fn fra_mbtiles(cx: &Cx, tiles: &SqlitePool, indholdstype: &'static str) -> Result<Response> {
     let z = *path_param::<Z>(cx)?;
     let x = *path_param::<X>(cx)?;
     let y = *path_param::<Y>(cx)?;
@@ -32,21 +47,20 @@ async fn tile(cx: &Cx) -> Result<Response> {
         return Err(not_found().into());
     };
 
-    let data: &Data = app_context(cx);
-    let tile: Option<Vec<u8>> = sqlx::query_scalar(
+    let indhold: Option<Vec<u8>> = sqlx::query_scalar(
         "SELECT tile_data FROM tiles \
          WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?",
     )
     .bind(z)
     .bind(x)
     .bind(tms_y)
-    .fetch_optional(&data.tiles)
+    .fetch_optional(tiles)
     .await?;
 
     // En tile uden marker findes ikke i filen. Det er ikke en fejl, bare
     // hav eller by, og svaret er tomt frem for 404, så browseren ikke logger
     // det som en fejl.
-    let Some(tile) = tile else {
+    let Some(indhold) = indhold else {
         return Ok(Response::builder()
             .status(StatusCode::NO_CONTENT)
             .header("Cache-Control", CACHE)
@@ -54,12 +68,12 @@ async fn tile(cx: &Cx) -> Result<Response> {
     };
 
     let mut svar = Response::builder()
-        .header("Content-Type", "application/vnd.mapbox-vector-tile")
+        .header("Content-Type", indholdstype)
         .header("Cache-Control", CACHE);
-    if er_gzip(&tile) {
+    if er_gzip(&indhold) {
         svar = svar.header("Content-Encoding", "gzip");
     }
-    Ok(svar.body(Body::from(tile))?)
+    Ok(svar.body(Body::from(indhold))?)
 }
 
 /// Rækken i MBTiles for en XYZ-tile, eller `None` hvis tilen ligger uden for

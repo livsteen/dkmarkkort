@@ -1,19 +1,21 @@
-//! Serverens adgang til databasen og tiles'ene. Begge er SQLite-filer som
-//! pipelinen har bygget, og begge åbnes skrivebeskyttet: en ny udgave af data
-//! kræver at serveren startes igen.
+//! Serverens adgang til databasen, tiles'ene og oversigten. Alle er
+//! SQLite-filer som pipelinen har bygget, og alle åbnes skrivebeskyttet: en
+//! ny udgave af data kræver at serveren startes igen.
 //!
 //! Det der ikke ændrer sig og bruges ved hvert opslag, læses én gang ved
 //! start: landsdelene, optællingerne og listen over bedrifter.
 
 use std::{collections::HashMap, path::Path};
 
-use dkmarkkort_core::{DATABASE_FIL, TILES_FIL, gruppe::Gruppe, kilder};
+use dkmarkkort_core::{DATABASE_FIL, OVERBLIK_FIL, TILES_FIL, gruppe::Gruppe, kilder};
 use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
 
 pub struct Landsdel {
+    /// Landsdelens nummer i oversigtens pixels.
+    pub nr: i64,
     pub nuts3: String,
     pub navn: String,
     /// Vest, syd, øst, nord i grader (EPSG:4326).
@@ -37,6 +39,7 @@ pub struct Bedrift {
 pub struct Data {
     pub database: SqlitePool,
     pub tiles: SqlitePool,
+    pub overblik: SqlitePool,
     /// Sorteret efter CVR-nummer, så en søgning på de første cifre er et
     /// udsnit af listen.
     pub bedrifter: Vec<Bedrift>,
@@ -52,16 +55,18 @@ impl Data {
     pub async fn aabn(mappe: &Path) -> Result<Self, String> {
         let database = pool(&mappe.join(DATABASE_FIL)).await?;
         let tiles = pool(&mappe.join(TILES_FIL)).await?;
+        let overblik = pool(&mappe.join(OVERBLIK_FIL)).await?;
         let fejl = |hvad: &'static str| move |e: sqlx::Error| format!("{hvad}: {e}");
 
-        let landsdele = sqlx::query_as::<_, (String, String, f64, f64, f64, f64)>(
-            "SELECT nuts3, navn, vest, syd, oest, nord FROM landsdele ORDER BY navn",
+        let landsdele = sqlx::query_as::<_, (i64, String, String, f64, f64, f64, f64)>(
+            "SELECT fid, nuts3, navn, vest, syd, oest, nord FROM landsdele ORDER BY navn",
         )
         .fetch_all(&database)
         .await
         .map_err(fejl("landsdele"))?
         .into_iter()
-        .map(|(nuts3, navn, vest, syd, oest, nord)| Landsdel {
+        .map(|(nr, nuts3, navn, vest, syd, oest, nord)| Landsdel {
+            nr,
             nuts3,
             navn,
             udstraekning: [vest, syd, oest, nord],
@@ -125,6 +130,7 @@ impl Data {
         Ok(Data {
             database,
             tiles,
+            overblik,
             bedrifter,
             landsdele,
             marker_i_alt,

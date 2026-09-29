@@ -77,6 +77,7 @@ async fn kort(cx: &Cx) -> Result<impl View> {
                     id="kort"
                     class="absolute inset-0"
                     data-tiles="/tiles/{z}/{x}/{y}"
+                    data-overblik="/overblik/{z}/{x}/{y}"
                     data-danmark=(udstraekning(&samlet(&data.landsdele)))
                     data-kreditering=(kreditering)
                 ></div>
@@ -151,6 +152,7 @@ async fn kort(cx: &Cx) -> Result<impl View> {
                                 for landsdel in data.landsdele.iter() {
                                     <option
                                         value=(landsdel.nuts3.as_str())
+                                        data-nr=(landsdel.nr)
                                         data-udstraekning=(udstraekning(&landsdel.udstraekning))
                                     >
                                         (landsdel.navn.as_str())
@@ -169,6 +171,7 @@ async fn kort(cx: &Cx) -> Result<impl View> {
                                             class="group/knap flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-stone-100 aria-[pressed=false]:text-stone-400"
                                             aria-pressed="true"
                                             data-gruppe=(gruppe.noegle())
+                                            data-nr=(gruppe.nr())
                                             data-farve=(gruppe.farve())
                                         >
                                             <span
@@ -204,7 +207,7 @@ async fn kort(cx: &Cx) -> Result<impl View> {
                         </section>
 
                         <p class="text-xs text-stone-500">
-                            "Klik på en mark for at se hvad der dyrkes på den. "
+                            "Zoom ind, og klik på en mark for at se hvad der dyrkes på den. "
                             <a class="underline hover:text-stone-800" href="/kilder">"Kilder og vilkår"</a>
                         </p>
                     </div>
@@ -445,6 +448,7 @@ mod tests {
     #[test]
     fn samlet_udstraekning() {
         let l = |udstraekning| Landsdel {
+            nr: 0,
             nuts3: String::new(),
             navn: String::new(),
             udstraekning,

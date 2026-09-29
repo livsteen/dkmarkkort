@@ -12,13 +12,16 @@ crates/server     webserveren (tokio + topcoat + Tailwind)
 data/             dagi-landsdele.geojson og afgroedekoder-<år>.csv ligger i repoet
 ```
 
-**Pipelinen** henter årets markkort fra LandbrugsGIS og bygger to SQLite-filer:
+**Pipelinen** henter årets markkort fra LandbrugsGIS og bygger tre SQLite-filer:
 
 - `markkort.gpkg` (GeoPackage) med alle marker, deres afgrødekode, afsnit og
   afgrødegruppe og den landsdel de ligger i, samt landsdelene, kodelisten og
   hvornår data er hentet.
-- `marker.mbtiles` med markerne som vektortiles. En mark bærer kun sit id,
-  sin gruppe og sin landsdel; resten står i databasen.
+- `marker.mbtiles` med markerne som vektortiles fra zoom 10 til 14, med
+  alle marker i hver tile. En mark bærer kun sit id, sin gruppe og sin
+  landsdel; resten står i databasen.
+- `overblik.mbtiles` med markerne som PNG-tiles fra zoom 5 til 11 til kortet
+  zoomet ud. Hver pixel er et tal for gruppe og landsdel, ikke en farve.
 
 Rust henter, pakker ud og styrer. GDAL og tippecanoe gør det geografiske
 arbejde.
@@ -37,9 +40,15 @@ Koder som oversigten ikke kender, vises som "Ukendt kode". Står en kode under
 to afsnit med hver sin gruppe, stopper pipelinen, indtil valget er truffet i
 `crates/pipeline/src/afgroedekoder.rs`.
 
-**Serveren** læser de to filer skrivebeskyttet, renderer siderne og leverer
-vektortiles på `/tiles/{z}/{x}/{y}`. Kortet i browseren er OpenLayers, som
-ligger i `crates/server/assets/vendor/openlayers/`.
+**Serveren** læser de tre filer skrivebeskyttet, renderer siderne og leverer
+vektortiles på `/tiles/{z}/{x}/{y}` og oversigten på `/overblik/{z}/{x}/{y}`.
+Kortet i browseren er OpenLayers, som ligger i
+`crates/server/assets/vendor/openlayers/`.
+
+Zoomet ud er markerne for mange til at tegne hver for sig, så kortet viser
+oversigten og farver dens pixels efter gruppe i et WebGL-lag. Fra zoom 11
+tegnes markerne selv. Filtrene virker på begge, og et klik i oversigten
+zoomer ind til markerne.
 
 Klikker man på en mark, slår kortet den op på `/mark/{id}` og viser den i et
 panel for sig. En bedrift findes på de første cifre af sit CVR-nummer

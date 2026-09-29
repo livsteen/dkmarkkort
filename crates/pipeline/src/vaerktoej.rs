@@ -1,6 +1,7 @@
-//! De eksterne værktøjer pipelinen kalder: GDAL (ogr2ogr, ogrinfo) og
-//! tippecanoe. Rust styrer rækkefølgen og tjekker hvert trin; den tunge
-//! geobehandling overlades til værktøjer der har gjort den i årevis.
+//! De eksterne værktøjer pipelinen kalder: GDAL (ogr2ogr, ogrinfo,
+//! gdal_rasterize, gdalwarp, gdal_translate) og tippecanoe. Rust styrer
+//! rækkefølgen og tjekker hvert trin; den tunge geobehandling overlades til
+//! værktøjer der har gjort den i årevis.
 
 use std::{ffi::OsStr, path::Path, process::Stdio};
 
@@ -13,6 +14,9 @@ pub async fn tjek_installeret() -> Result<()> {
     for (navn, flag) in [
         ("ogr2ogr", "--version"),
         ("ogrinfo", "--version"),
+        ("gdal_rasterize", "--version"),
+        ("gdalwarp", "--version"),
+        ("gdal_translate", "--version"),
         ("tippecanoe", "--version"),
     ] {
         let status = Command::new(navn)
@@ -66,6 +70,30 @@ pub async fn ogrinfo_sqlite(database: &Path, sql: &str) -> Result<()> {
         ],
     )
     .await
+}
+
+pub async fn gdal_rasterize<I, S>(argumenter: I) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    koer("gdal_rasterize", argumenter).await
+}
+
+pub async fn gdalwarp<I, S>(argumenter: I) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    koer("gdalwarp", argumenter).await
+}
+
+pub async fn gdal_translate<I, S>(argumenter: I) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    koer("gdal_translate", argumenter).await
 }
 
 pub async fn tippecanoe<I, S>(argumenter: I) -> Result<()>
