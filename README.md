@@ -41,6 +41,12 @@ to afsnit med hver sin gruppe, stopper pipelinen, indtil valget er truffet i
 vektortiles på `/tiles/{z}/{x}/{y}`. Kortet i browseren er OpenLayers, som
 ligger i `crates/server/assets/vendor/openlayers/`.
 
+Klikker man på en mark, slår kortet den op på `/mark/{id}` og viser den i et
+panel for sig. En bedrift findes på de første cifre af sit CVR-nummer
+(`/soeg?q=`), og dens marker hentes på `/bedrift/{cvr}`, hvor de kan søges på
+marknummer eller afgrøde. Begge paneler kan trækkes rundt i deres hoved.
+Marker indberettet uden CVR-nummer kan vælges på kortet, men ikke søges frem.
+
 ## Kom i gang
 
 Kræver Rust, GDAL, tippecanoe og topcoat-CLI'en. `pdftotext` (poppler) skal

@@ -517,6 +517,7 @@ name = "dkmarkkort"
 version = "0.1.0"
 dependencies = [
  "dkmarkkort-core",
+ "serde",
  "sqlx",
  "tokio",
  "topcoat",

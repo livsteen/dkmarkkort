@@ -6,8 +6,8 @@
 //!
 //! Resultatet er to SQLite-filer i datamappen:
 //!
-//! - `markkort.gpkg`: markerne med afgrødekode, afsnit, afgrødegruppe og
-//!   landsdel; landsdelene med deres udstrækning; afgrødekodelisten og
+//! - `markkort.gpkg`: markerne med afgrødekode, afsnit, afgrødegruppe,
+//!   landsdel og udstrækning; landsdelene med deres udstrækning; afgrødekodelisten og
 //!   hvornår markdata er hentet.
 //! - `marker.mbtiles`: markerne som vektortiles med id, gruppe og landsdel.
 //!
@@ -213,6 +213,26 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
         "marker",
     ])
     .await?;
+    // Serveren zoomer til en mark den har fundet i en søgning, og den mark er
+    // måske ikke tegnet endnu. Udstrækningen lægges derfor i kolonner i
+    // EPSG:4326 ligesom landsdelenes; kortet regner selv videre derfra.
+    for kolonne in ["vest", "syd", "oest", "nord"] {
+        ogrinfo_sql(
+            &database,
+            &format!("ALTER TABLE marker ADD COLUMN {kolonne} REAL"),
+        )
+        .await?;
+    }
+    ogrinfo_sql(
+        &database,
+        "UPDATE marker SET vest = ST_MinX(u), syd = ST_MinY(u),
+                           oest = ST_MaxX(u), nord = ST_MaxY(u)
+         FROM (SELECT fid AS f, ST_Transform(ST_Envelope(geom), 4326) AS u FROM marker)
+         WHERE fid = f",
+    )
+    .await?;
+    // En bedrifts marker slås op på CVR-nummeret.
+    ogrinfo_sql(&database, "CREATE INDEX marker_cvr ON marker (CVR)").await?;
     ogr2ogr([
         "-update",
         "-f",
@@ -276,9 +296,13 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
         utf8(&geojsonl),
         utf8(&database),
         "-sql",
-        "SELECT fid AS id, gruppe, nuts3, geom FROM marker",
+        "SELECT fid, gruppe, nuts3, geom FROM marker",
         "-t_srs",
         "EPSG:4326",
+        // Id'et skal stå som objektets eget id, ikke som en egenskab: GDAL
+        // skriver ikke en kolonne der hedder id, og kortet finder en mark
+        // på tilens id. tippecanoe tager id'et med af sig selv.
+        "-preserve_fid",
     ])
     .await?;
     let tiles = work.join(TILES_FIL);
@@ -303,7 +327,6 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
         kreditering.as_str(),
         "-Z5",
         "-z14",
-        "--use-attribute-for-id=id",
         "--drop-smallest-as-needed",
         "--detect-shared-borders",
         "--force",
