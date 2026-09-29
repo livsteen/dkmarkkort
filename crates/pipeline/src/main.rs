@@ -296,9 +296,13 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
         utf8(&geojsonl),
         utf8(&database),
         "-sql",
-        "SELECT fid AS id, gruppe, nuts3, geom FROM marker",
+        "SELECT fid, gruppe, nuts3, geom FROM marker",
         "-t_srs",
         "EPSG:4326",
+        // Id'et skal stå som objektets eget id, ikke som en egenskab: GDAL
+        // skriver ikke en kolonne der hedder id, og kortet finder en mark
+        // på tilens id. tippecanoe tager id'et med af sig selv.
+        "-preserve_fid",
     ])
     .await?;
     let tiles = work.join(TILES_FIL);
@@ -323,7 +327,6 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
         kreditering.as_str(),
         "-Z5",
         "-z14",
-        "--use-attribute-for-id=id",
         "--drop-smallest-as-needed",
         "--detect-shared-borders",
         "--force",

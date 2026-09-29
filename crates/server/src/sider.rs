@@ -84,7 +84,7 @@ async fn kort(cx: &Cx) -> Result<impl View> {
                 <section
                     id="panel"
                     class=(PANEL)
-                    style="top: 0.75rem; left: 0.75rem"
+                    style="top: 0.75rem; right: 0.75rem"
                     aria-label="Markkort"
                 >
                     <header class=(HOVED) data-haandtag="" title="Træk for at flytte panelet">
@@ -214,7 +214,7 @@ async fn kort(cx: &Cx) -> Result<impl View> {
                     id="info"
                     hidden=""
                     class=(PANEL)
-                    style="top: 0.75rem; right: 0.75rem"
+                    style="bottom: 0.75rem; left: 0.75rem"
                     aria-live="polite"
                     aria-label="Den valgte mark"
                 >

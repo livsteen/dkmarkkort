@@ -317,7 +317,10 @@
 		forslagEl.querySelectorAll('[data-valgt]').forEach((linje) => linje.removeAttribute('data-valgt'));
 		if (valgt === null) return;
 		const nr = forslag.findIndex((valg) => valg.slags === 'mark' && valg.mark.id === valgt.id);
-		if (nr >= 0) forslagEl.children[nr].setAttribute('data-valgt', '');
+		if (nr < 0) return;
+		const linje = forslagEl.children[nr];
+		linje.setAttribute('data-valgt', '');
+		linje.scrollIntoView({ block: 'nearest' });
 	};
 
 	const pegPaa = (nr) => {
@@ -339,9 +342,17 @@
 		if (valg.slags === 'bedrift') {
 			vaelgBedrift(valg.cvr, { zoom: true });
 		} else {
-			pegPaa(nr);
 			vaelgMark(valg.mark, { zoom: true });
+			// Marken er fundet; listen lukkes, så kortet og info-panelet
+			// kan ses. Den kommer igen når man går tilbage til søgefeltet.
+			skjulForslag();
 		}
+	};
+
+	const skjulForslag = () => {
+		forslagEl.hidden = true;
+		soegEl.setAttribute('aria-expanded', 'false');
+		soegEl.removeAttribute('aria-activedescendant');
 	};
 
 	const soegCvr = async (tekst) => {
@@ -436,6 +447,15 @@
 		}
 	});
 
+	soegEl.addEventListener('focus', () => {
+		if (bedrift !== null && forslagEl.hidden) filtrerMarker(soegEl.value);
+	});
+
+	// Et klik i feltet mens det har fokus, udløser ikke `focus` igen.
+	soegEl.addEventListener('click', () => {
+		if (bedrift !== null && forslagEl.hidden) filtrerMarker(soegEl.value);
+	});
+
 	soegEl.addEventListener('keydown', (haendelse) => {
 		switch (haendelse.key) {
 			case 'ArrowDown':
@@ -484,10 +504,12 @@
 		const bredde = panel.offsetWidth;
 		const x = Math.min(Math.max(venstre, MARGEN), Math.max(MARGEN, innerWidth - bredde - MARGEN));
 		const y = Math.min(Math.max(top, MARGEN), Math.max(MARGEN, innerHeight - SYNLIG));
+		panel.dataset.flyttet = '';
 		Object.assign(panel.style, {
 			left: `${x}px`,
 			top: `${y}px`,
 			right: 'auto',
+			bottom: 'auto',
 			// Et panel der er trukket langt ned, ruller hellere end at gå ud
 			// over kanten.
 			maxHeight: `calc(100dvh - ${y + MARGEN}px)`,
@@ -498,7 +520,7 @@
 	// det hvor det blev sluppet, og trækkes ind igen hvis vinduet bliver
 	// mindre eller panelet bredere.
 	const holdInde = (panel) => {
-		if (panel.hidden || panel.style.right !== 'auto') return;
+		if (panel.hidden || !('flyttet' in panel.dataset)) return;
 		const { left, top } = panel.getBoundingClientRect();
 		placer(panel, left, top);
 	};
