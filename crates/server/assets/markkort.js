@@ -208,6 +208,9 @@
 
 		if (mark === null) {
 			infoEl.hidden = true;
+			// Står den fravalgte marks nummer i søgefeltet, går det med den.
+			if (soegEl.value === markINavn) soegEl.value = '';
+			markINavn = null;
 			return;
 		}
 
@@ -240,7 +243,18 @@
 		const nr = ++valgNr;
 		try {
 			const mark = await hentJson(`/mark/${ramt.getId()}`);
-			if (nr === valgNr) vaelgMark(mark);
+			if (nr !== valgNr) return;
+			vaelgMark(mark);
+			// Søgefeltet må ikke blive ved med at vise en anden mark end den
+			// valgte.
+			if (bedrift?.marker.some((egen) => egen.id === mark.id)) {
+				soegEl.value = mark.marknr;
+				markINavn = mark.marknr;
+				skjulForslag();
+			} else if (soegEl.value === markINavn) {
+				soegEl.value = '';
+				markINavn = null;
+			}
 		} catch (fejl) {
 			console.error(fejl);
 		}
@@ -271,6 +285,9 @@
 	let forslag = [];
 	let markeret = -1;
 	let soegNr = 0;
+	// Marknummeret i søgefeltet når det er sat af et valg i listen, og ikke
+	// skrevet.
+	let markINavn = null;
 	let ventende = null;
 
 	const besked = (tekst) => {
@@ -344,7 +361,10 @@
 		} else {
 			vaelgMark(valg.mark, { zoom: true });
 			// Marken er fundet; listen lukkes, så kortet og info-panelet
-			// kan ses. Den kommer igen når man går tilbage til søgefeltet.
+			// kan ses, og feltet viser hvilken mark det blev. Listen kommer
+			// igen når man går tilbage til søgefeltet.
+			soegEl.value = valg.mark.marknr;
+			markINavn = valg.mark.marknr;
 			skjulForslag();
 		}
 	};
@@ -413,6 +433,7 @@
 		udfyld(bedriftEl, { cvr });
 		bedriftEl.hidden = false;
 		soegEl.value = '';
+		markINavn = null;
 		soegEl.placeholder = 'Marknr eller afgrøde';
 		soegEl.focus();
 		filtrerMarker('');
@@ -430,6 +451,7 @@
 		bedrift = null;
 		bedriftEl.hidden = true;
 		soegEl.value = '';
+		markINavn = null;
 		soegEl.placeholder = 'CVR-nummer';
 		visForslag([]);
 		besked('');
@@ -447,14 +469,22 @@
 		}
 	});
 
-	soegEl.addEventListener('focus', () => {
-		if (bedrift !== null && forslagEl.hidden) filtrerMarker(soegEl.value);
-	});
+	// Går man tilbage til feltet mens det viser den valgte mark, er det for
+	// at vælge en anden: hele listen vises, og teksten markeres, så det
+	// næste man skriver erstatter den.
+	const genaabnForslag = () => {
+		if (bedrift === null || !forslagEl.hidden) return;
+		if (soegEl.value === markINavn) {
+			filtrerMarker('');
+			soegEl.select();
+		} else {
+			filtrerMarker(soegEl.value);
+		}
+	};
 
+	soegEl.addEventListener('focus', genaabnForslag);
 	// Et klik i feltet mens det har fokus, udløser ikke `focus` igen.
-	soegEl.addEventListener('click', () => {
-		if (bedrift !== null && forslagEl.hidden) filtrerMarker(soegEl.value);
-	});
+	soegEl.addEventListener('click', genaabnForslag);
 
 	soegEl.addEventListener('keydown', (haendelse) => {
 		switch (haendelse.key) {
