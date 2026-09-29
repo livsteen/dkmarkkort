@@ -4,7 +4,8 @@
 // data-attributter. Her sættes OpenLayers op, og panelets knapper kobles til.
 // Filtrering sker lokalt: hver mark i tiles'ene har sin `gruppe` og sin
 // landsdel (`nuts3`), så et filterskift tegner de hentede tiles igen uden
-// at spørge serveren.
+// at spørge serveren. Zoomet ud vises oversigten, hvor hver pixel bærer
+// gruppe og landsdel som tal, og den filtreres på samme måde.
 //
 // Alt andet om en mark end det kortet tegner, står i databasen. Et klik på en
 // mark og en søgning efter en bedrift spørger derfor serveren (`/mark/{id}`,
@@ -85,16 +86,78 @@
 		return stile.get(gruppe) ?? stile.get('ukendt');
 	};
 
+	// Zoomet ud er markerne for mange til at tegne hver for sig, og kortet
+	// viser oversigten. Markerne tager over efter zoom 11, hvor kortet bruger
+	// tiles'ene fra zoom 10, som har alle marker med.
+	const MARKER_FRA = 11;
+
+	// Begge lag viser markdata, så krediteringen står der på alle zoom.
+	const kreditering = kortEl.dataset.kreditering
+		.split('|')
+		.map((tekst) => link('/kilder', tekst));
+
 	const marker = new ol.layer.VectorTile({
+		minZoom: MARKER_FRA,
 		source: new ol.source.VectorTile({
 			format: new ol.format.MVT(),
 			url: kortEl.dataset.tiles,
+			minZoom: 10,
 			maxZoom: 14,
-			attributions: kortEl.dataset.kreditering
-				.split('|')
-				.map((tekst) => link('/kilder', tekst)),
+			attributions: kreditering,
 		}),
 		style: stil,
+	});
+
+	// En pixel i oversigten er gruppens nummer gange 16 plus landsdelens
+	// nummer, eller 0 hvor der ingen mark er. Skyggeren får den som 0–1, så
+	// den ganges op igen.
+	const kode = ['round', ['*', ['band', 1], 255]];
+	const gruppeNr = ['floor', ['/', kode, 16]];
+	const landsdelNr = ['%', kode, 16];
+
+	// Gruppens farve står på dens nummer, lige så gennemsigtig som på
+	// markerne. Plads 0 og ubrugte numre er uden farve.
+	const palet = Array.from({ length: 16 }, () => [0, 0, 0, 0]);
+	for (const knap of gruppeKnapper) {
+		palet[Number(knap.dataset.nr)] = `${knap.dataset.farve}b0`;
+	}
+
+	const gruppeVar = (knap) => `gruppe${knap.dataset.nr}`;
+	// 1 når pixlens gruppe er slået til, ellers 0.
+	const gruppeVist = [
+		'match',
+		gruppeNr,
+		...gruppeKnapper.flatMap((knap) => [Number(knap.dataset.nr), ['var', gruppeVar(knap)]]),
+		0,
+	];
+
+	const oversigt = new ol.layer.WebGLTile({
+		maxZoom: MARKER_FRA,
+		source: new ol.source.XYZ({
+			url: kortEl.dataset.overblik,
+			minZoom: 5,
+			maxZoom: 11,
+			// En pixel er en kode og må ikke blandes med naboens.
+			interpolate: false,
+			attributions: kreditering,
+		}),
+		style: {
+			// Landsdel 0 er hele landet.
+			variables: {
+				landsdel: 0,
+				...Object.fromEntries(gruppeKnapper.map((knap) => [gruppeVar(knap), 1])),
+			},
+			color: [
+				'case',
+				[
+					'all',
+					['==', gruppeVist, 1],
+					['any', ['==', ['var', 'landsdel'], 0], ['==', landsdelNr, ['var', 'landsdel']]],
+				],
+				['palette', gruppeNr, palet],
+				[0, 0, 0, 0],
+			],
+		},
 	});
 
 	const baggrunde = baggrundKnapper.map(
@@ -113,7 +176,7 @@
 
 	const kort = new ol.Map({
 		target: kortEl,
-		layers: [...baggrunde, marker],
+		layers: [...baggrunde, oversigt, marker],
 		view: new ol.View({ center: ol.extent.getCenter(hele), zoom: 7, maxZoom: 20 }),
 		// Kilderne kræver kreditering, så den er foldet ud fra start.
 		controls: [
@@ -138,6 +201,7 @@
 		const valgt = landsdelEl.selectedOptions[0];
 		filter.nuts3 = landsdelEl.value || null;
 		marker.changed();
+		oversigt.updateStyleVariables({ landsdel: Number(valgt.dataset.nr ?? 0) });
 		vis(filter.nuts3 ? tilKort(valgt.dataset.udstraekning) : hele, 500);
 	});
 
@@ -151,6 +215,7 @@
 				filter.slukket.add(knap.dataset.gruppe);
 			}
 			marker.changed();
+			oversigt.updateStyleVariables({ [gruppeVar(knap)]: taendt ? 1 : 0 });
 		});
 	}
 
@@ -235,7 +300,17 @@
 	const lagFilter = { layerFilter: (lag) => lag === marker, hitTolerance: 2 };
 
 	kort.on('singleclick', async (haendelse) => {
-		const ramt = kort.forEachFeatureAtPixel(haendelse.pixel, (mark) => mark, lagFilter);
+		// I oversigten er markerne et billede og kan ikke vælges. Et klik
+		// zoomer ind til dem.
+		if (kort.getView().getZoom() <= MARKER_FRA) {
+			kort.getView().animate({
+				center: haendelse.coordinate,
+				zoom: MARKER_FRA + 1,
+				duration: 500,
+			});
+			return;
+		}
+		const ramt =kort.forEachFeatureAtPixel(haendelse.pixel, (mark) => mark, lagFilter);
 		if (!ramt) {
 			vaelgMark(null);
 			return;

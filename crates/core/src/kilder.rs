@@ -28,7 +28,8 @@ pub const MARKER: Kilde = Kilde {
     kreditering: "Marker: Landbrugsstyrelsen",
     bearbejdning: Some(
         "Hver mark har fået den landsdel den ligger i og en afgrødegruppe ud fra sin \
-         afgrødekode. Geometrien er forenklet i vektortiles'ene.",
+         afgrødekode. Geometrien er forenklet i vektortiles'ene. Zoomet ud vises \
+         markerne som et billede, hvor hvert punkt har den gruppe der fylder mest.",
     ),
     note: Some(
         "LandbrugsGIS oplyser hverken licens eller krav til kildeangivelse. Vi angiver \

@@ -4,23 +4,26 @@
 //! cargo run -p dkmarkkort-pipeline -- [--aar 2026] [--data data]
 //! ```
 //!
-//! Resultatet er to SQLite-filer i datamappen:
+//! Resultatet er tre SQLite-filer i datamappen:
 //!
 //! - `markkort.gpkg`: markerne med afgrødekode, afsnit, afgrødegruppe,
 //!   landsdel og udstrækning; landsdelene med deres udstrækning; afgrødekodelisten og
 //!   hvornår markdata er hentet.
 //! - `marker.mbtiles`: markerne som vektortiles med id, gruppe og landsdel.
+//! - `overblik.mbtiles`: markerne som rastertiles til kortet zoomet ud, se
+//!   `overblik.rs`.
 //!
 //! Input ud over det der hentes: `data/dagi-landsdele.geojson` og
 //! `data/afgroedekoder-<år>.csv` (se `--bin afgroedekoder`). Kræver GDAL
-//! (ogr2ogr, ogrinfo) og tippecanoe.
+//! (ogr2ogr, ogrinfo, gdal_rasterize, gdalwarp, gdal_translate) og tippecanoe.
 //!
 //! Alt mellemliggende ligger i `<data>/work`, og det hentede i `<data>/raw`.
-//! De to resultatfiler bygges i `work` og flyttes først når begge er
-//! færdige, så en kørende server aldrig åbner en halv fil.
+//! Resultatfilerne bygges i `work` og flyttes først når alle er færdige, så
+//! en kørende server aldrig åbner en halv fil.
 
 mod afgroedekoder;
 mod hent;
+mod overblik;
 mod udpak;
 mod vaerktoej;
 
@@ -30,7 +33,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use dkmarkkort_core::{DATABASE_FIL, TILES_FIL, TILES_LAG, gruppe::Gruppe, kilder};
+use dkmarkkort_core::{DATABASE_FIL, OVERBLIK_FIL, TILES_FIL, TILES_LAG, gruppe::Gruppe, kilder};
 use sqlx::{Connection, SqliteConnection, sqlite::SqliteConnectOptions};
 use tokio::fs;
 
@@ -312,9 +315,9 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
         kilder::AFGROEDEKODER.kreditering,
         kilder::LANDSDELE.kreditering
     );
-    // Fra zoom 5 ses hele landet på én skærm; ved 14 er den mindste mark
-    // tydelig, og længere inde forstørrer kortet selv. Er en tile for stor,
-    // udelades de mindste marker først, så landskabet stadig kan læses.
+    // Fra zoom 10 er der plads til alle marker i hver tile, så ingen udelades
+    // og kortet ser ens ud overalt. Længere ude viser kortet oversigten. Ved
+    // 14 er den mindste mark tydelig, og længere inde forstørrer kortet selv.
     // Nabomarker deler kant, og forenklingen holder den kant fælles.
     tippecanoe([
         "-o",
@@ -325,17 +328,20 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
         "dkmarkkort",
         "-A",
         kreditering.as_str(),
-        "-Z5",
+        "-Z10",
         "-z14",
-        "--drop-smallest-as-needed",
         "--detect-shared-borders",
         "--force",
         utf8(&geojsonl),
     ])
     .await?;
 
+    println!("==> Bygger {OVERBLIK_FIL}");
+    let overblik = overblik::byg(&database, &work).await?;
+
     fs::rename(&database, data.join(DATABASE_FIL)).await?;
     fs::rename(&tiles, data.join(TILES_FIL)).await?;
+    fs::rename(&overblik, data.join(OVERBLIK_FIL)).await?;
 
     opsummer(&data.join(DATABASE_FIL)).await?;
     Ok(())

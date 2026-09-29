@@ -1,5 +1,5 @@
-# Serveren alene. Data — markkort.gpkg og marker.mbtiles — bygges uden for
-# containeren med dkmarkkort-pipeline og mountes på /data:
+# Serveren alene. Data — markkort.gpkg, marker.mbtiles og overblik.mbtiles —
+# bygges uden for containeren med dkmarkkort-pipeline og mountes på /data:
 #
 #   docker build -t dkmarkkort .
 #   docker run --rm -p 3000:3000 -v "$PWD/data:/data:ro" dkmarkkort
