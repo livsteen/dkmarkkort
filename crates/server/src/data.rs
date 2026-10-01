@@ -1,17 +1,112 @@
 //! Serverens adgang til databasen, tiles'ene og oversigten. Alle er
-//! SQLite-filer som pipelinen har bygget, og alle åbnes skrivebeskyttet: en
-//! ny udgave af data kræver at serveren startes igen.
+//! SQLite-filer som pipelinen har bygget, og alle åbnes skrivebeskyttet.
+//!
+//! Serveren starter også uden data og holder øje med pipelinens `bygget`-fil.
+//! Når den ændrer sig, åbnes den nye udgave, og den gamle lukkes, når den
+//! sidste forespørgsel har sluppet den.
 //!
 //! Det der ikke ændrer sig og bruges ved hvert opslag, læses én gang ved
 //! start: landsdelene, optællingerne og listen over bedrifter.
 
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, PoisonError, RwLock},
+    time::Duration,
+};
 
-use dkmarkkort_core::{DATABASE_FIL, OVERBLIK_FIL, TILES_FIL, gruppe::Gruppe, kilder};
+use dkmarkkort_core::{BYGGET_FIL, DATABASE_FIL, OVERBLIK_FIL, TILES_FIL, gruppe::Gruppe, kilder};
 use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
+use topcoat::{
+    Result,
+    context::{Cx, app_context},
+    router::error::service_unavailable,
+};
+
+/// Hvor ofte serveren ser efter nye data.
+const KIG_EFTER: Duration = Duration::from_secs(30);
+
+/// Hvor længe en browser bedes vente, før den prøver igen uden data.
+const PROEV_IGEN: u64 = 60;
+
+/// De data serveren viser lige nu, eller ingen, indtil pipelinen har bygget
+/// dem første gang.
+#[derive(Clone, Default)]
+pub struct Kortdata(Arc<RwLock<Option<Arc<Data>>>>);
+
+impl Kortdata {
+    /// Åbner data i `mappe`, hvis de findes, og ser derefter efter nye hvert
+    /// [`KIG_EFTER`].
+    pub async fn hold_opdateret(mappe: PathBuf) -> Self {
+        let kortdata = Kortdata::default();
+        let mut opdatering = Opdatering::default();
+        opdatering.koer(&kortdata, &mappe).await;
+
+        let baggrund = kortdata.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(KIG_EFTER).await;
+                opdatering.koer(&baggrund, &mappe).await;
+            }
+        });
+        kortdata
+    }
+
+    pub fn hent(&self) -> Option<Arc<Data>> {
+        self.0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    fn saet(&self, data: Data) {
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(data));
+    }
+}
+
+/// Data til en forespørgsel, eller 503, mens de første data bygges.
+pub fn kortdata(cx: &Cx) -> Result<Arc<Data>> {
+    app_context::<Kortdata>(cx)
+        .hent()
+        .ok_or_else(|| service_unavailable(PROEV_IGEN).into())
+}
+
+/// Hvad serveren sidst så i datamappen.
+#[derive(Default)]
+struct Opdatering {
+    /// Indholdet af `bygget`, da de viste data blev åbnet.
+    bygget: Option<String>,
+    /// Den sidste fejl, så den kun logges én gang, selvom den gentager sig.
+    fejl: Option<String>,
+}
+
+impl Opdatering {
+    /// Åbner data, hvis der ingen er, eller hvis pipelinen har bygget nye.
+    /// Mislykkes det, beholdes de data der vises.
+    async fn koer(&mut self, kortdata: &Kortdata, mappe: &Path) {
+        let bygget = tokio::fs::read_to_string(mappe.join(BYGGET_FIL)).await.ok();
+        if kortdata.hent().is_some() && bygget == self.bygget {
+            return;
+        }
+        match Data::aabn(mappe).await {
+            Ok(data) => {
+                println!("dkmarkkort: data åbnet fra {}", mappe.display());
+                kortdata.saet(data);
+                self.bygget = bygget;
+                self.fejl = None;
+            }
+            Err(fejl) => {
+                if self.fejl.as_ref() != Some(&fejl) {
+                    eprintln!("dkmarkkort: {fejl}");
+                    self.fejl = Some(fejl);
+                }
+            }
+        }
+    }
+}
 
 pub struct Landsdel {
     /// Landsdelens nummer i oversigtens pixels.
@@ -52,7 +147,7 @@ pub struct Data {
 impl Data {
     /// Læser det der ikke ændrer sig mens serveren kører, og holder
     /// forbindelserne åbne til opslagene.
-    pub async fn aabn(mappe: &Path) -> Result<Self, String> {
+    pub async fn aabn(mappe: &Path) -> std::result::Result<Self, String> {
         let database = pool(&mappe.join(DATABASE_FIL)).await?;
         let tiles = pool(&mappe.join(TILES_FIL)).await?;
         let overblik = pool(&mappe.join(OVERBLIK_FIL)).await?;
@@ -140,7 +235,7 @@ impl Data {
     }
 }
 
-async fn pool(sti: &Path) -> Result<SqlitePool, String> {
+async fn pool(sti: &Path) -> std::result::Result<SqlitePool, String> {
     if !sti.exists() {
         return Err(format!(
             "{} findes ikke — kør `cargo run -p dkmarkkort-pipeline` først",

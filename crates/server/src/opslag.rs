@@ -10,11 +10,11 @@ use dkmarkkort_core::gruppe::Gruppe;
 use serde::Serialize;
 use topcoat::{
     Result,
-    context::{Cx, app_context},
+    context::Cx,
     router::{content::Json, error::not_found, path_param, query_params, route},
 };
 
-use crate::data::{Bedrift, Data};
+use crate::data::{Bedrift, Data, kortdata};
 
 path_param!(id: i64, error = not_found);
 path_param!(cvr: String, error = not_found);
@@ -72,7 +72,7 @@ struct Mark {
 /// Bedrifter hvis CVR-nummer begynder med de cifre der er skrevet.
 #[route(GET "/soeg")]
 async fn soeg(cx: &Cx) -> Result<Json<Vec<Forslag>>> {
-    let data: &Data = app_context(cx);
+    let data = kortdata(cx)?;
     let soegning = query_params::<Soegning>(cx)?;
     let forslag = bedrifter_med_praefiks(&data.bedrifter, &soegning.q)
         .iter()
@@ -88,7 +88,7 @@ async fn soeg(cx: &Cx) -> Result<Json<Vec<Forslag>>> {
 /// Alle marker under ét CVR-nummer, ordnet efter marknummer.
 #[route(GET "/bedrift/{cvr}")]
 async fn bedrift(cx: &Cx) -> Result<Json<Vec<Mark>>> {
-    let data: &Data = app_context(cx);
+    let data = kortdata(cx)?;
     let cvr = path_param::<Cvr>(cx)?;
     if !er_cvr(cvr) {
         return Err(not_found().into());
@@ -104,7 +104,7 @@ async fn bedrift(cx: &Cx) -> Result<Json<Vec<Mark>>> {
     if raekker.is_empty() {
         return Err(not_found().into());
     }
-    let mut marker: Vec<Mark> = raekker.into_iter().map(|r| mark(data, r)).collect();
+    let mut marker: Vec<Mark> = raekker.into_iter().map(|r| mark(&data, r)).collect();
     marker.sort_by(|a, b| sammenlign_marknr(&a.marknr, &b.marknr));
     Ok(Json(marker))
 }
@@ -112,7 +112,7 @@ async fn bedrift(cx: &Cx) -> Result<Json<Vec<Mark>>> {
 /// Én mark, som når der er klikket på den.
 #[route(GET "/mark/{id}")]
 async fn en_mark(cx: &Cx) -> Result<Json<Mark>> {
-    let data: &Data = app_context(cx);
+    let data = kortdata(cx)?;
     let id = *path_param::<Id>(cx)?;
     let raekke: Option<MarkRaekke> = sqlx::query_as(
         "SELECT fid, Marknr, CVR, Afgkode, Afgroede, IMK_areal, afsnit, gruppe, nuts3,
@@ -123,7 +123,7 @@ async fn en_mark(cx: &Cx) -> Result<Json<Mark>> {
     .fetch_optional(&data.database)
     .await?;
     match raekke {
-        Some(raekke) => Ok(Json(mark(data, raekke))),
+        Some(raekke) => Ok(Json(mark(&data, raekke))),
         None => Err(not_found().into()),
     }
 }
