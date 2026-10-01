@@ -201,12 +201,17 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
     .await?;
 
     // Landsdelsgrænserne er forenklede, så marker helt ude ved kysten kan
-    // falde uden for dem. De får den landsdel der ligger nærmest.
+    // falde uden for dem. De får den landsdel der ligger nærmest. Den
+    // nærmeste findes med MIN frem for ORDER BY, fordi SQLite 3.46, som
+    // Debian trixie i pipeline-containeren har, ikke kan se den ydre tabel i
+    // et underudtryks ORDER BY.
     ogrinfo_sqlite(
         &arbejd,
         "UPDATE marker
          SET nuts3 = (SELECT l.nuts3 FROM landsdele l
-                      ORDER BY ST_Distance(l.geom, ST_PointOnSurface(marker.geom))
+                      WHERE ST_Distance(l.geom, ST_PointOnSurface(marker.geom)) =
+                            (SELECT MIN(ST_Distance(n.geom, ST_PointOnSurface(marker.geom)))
+                             FROM landsdele n)
                       LIMIT 1)
          WHERE nuts3 IS NULL",
     )
