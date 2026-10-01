@@ -60,10 +60,13 @@ const FORSLAG: &str = "flex cursor-pointer items-center gap-2 px-2 py-1 aria-sel
 
 #[page("/")]
 async fn kort(cx: &Cx) -> Result<impl View> {
-    let data = app_context::<Kortdata>(cx).hent();
+    let kortdata = app_context::<Kortdata>(cx);
+    let data = kortdata.hent();
+    let fejlet = data.is_none() && kortdata.fejlet().await;
     Ok(view! {
         match data.as_deref() {
             Some(data) => kortside(data: data),
+            None if fejlet => kunne_ikke_bygges(),
             None => bygges(),
         }
     })
@@ -80,6 +83,24 @@ async fn bygges() -> Result<impl View> {
                 <p class="mt-3 text-stone-600">
                     "Markerne hentes og gøres klar til kortet. Det tager et stykke tid "
                     "første gang. Prøv igen om lidt."
+                </p>
+            </main>
+        )
+    })
+}
+
+/// Vises i stedet for [`bygges`], når der ingen data er, og pipelinens
+/// seneste forsøg fejlede.
+#[component]
+async fn kunne_ikke_bygges() -> Result<impl View> {
+    Ok(view! {
+        dokument(
+            titel: "Markkort",
+            <main class="mx-auto max-w-2xl px-5 py-10 leading-relaxed text-stone-800">
+                <h1 class="text-3xl font-semibold">"Kortdata kunne ikke bygges"</h1>
+                <p class="mt-3 text-stone-600">
+                    "Det seneste forsøg på at gøre markerne klar til kortet fejlede. "
+                    "Der prøves automatisk igen hver time."
                 </p>
             </main>
         )
