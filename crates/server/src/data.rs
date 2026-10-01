@@ -15,7 +15,9 @@ use std::{
     time::Duration,
 };
 
-use dkmarkkort_core::{BYGGET_FIL, DATABASE_FIL, OVERBLIK_FIL, TILES_FIL, gruppe::Gruppe, kilder};
+use dkmarkkort_core::{
+    BYGGET_FIL, DATABASE_FIL, FEJLET_FIL, OVERBLIK_FIL, TILES_FIL, gruppe::Gruppe, kilder,
+};
 use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -34,36 +36,49 @@ const PROEV_IGEN: u64 = 60;
 
 /// De data serveren viser lige nu, eller ingen, indtil pipelinen har bygget
 /// dem første gang.
-#[derive(Clone, Default)]
-pub struct Kortdata(Arc<RwLock<Option<Arc<Data>>>>);
+#[derive(Clone)]
+pub struct Kortdata {
+    data: Arc<RwLock<Option<Arc<Data>>>>,
+    mappe: Arc<Path>,
+}
 
 impl Kortdata {
     /// Åbner data i `mappe`, hvis de findes, og ser derefter efter nye hvert
     /// [`KIG_EFTER`].
     pub async fn hold_opdateret(mappe: PathBuf) -> Self {
-        let kortdata = Kortdata::default();
+        let kortdata = Kortdata {
+            data: Arc::default(),
+            mappe: Arc::from(mappe),
+        };
         let mut opdatering = Opdatering::default();
-        opdatering.koer(&kortdata, &mappe).await;
+        opdatering.koer(&kortdata).await;
 
         let baggrund = kortdata.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(KIG_EFTER).await;
-                opdatering.koer(&baggrund, &mappe).await;
+                opdatering.koer(&baggrund).await;
             }
         });
         kortdata
     }
 
     pub fn hent(&self) -> Option<Arc<Data>> {
-        self.0
+        self.data
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
+    /// Om pipelinens seneste forsøg på at bygge data fejlede.
+    pub async fn fejlet(&self) -> bool {
+        tokio::fs::try_exists(self.mappe.join(FEJLET_FIL))
+            .await
+            .unwrap_or(false)
+    }
+
     fn saet(&self, data: Data) {
-        *self.0.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(data));
+        *self.data.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(data));
     }
 }
 
@@ -86,7 +101,8 @@ struct Opdatering {
 impl Opdatering {
     /// Åbner data, hvis der ingen er, eller hvis pipelinen har bygget nye.
     /// Mislykkes det, beholdes de data der vises.
-    async fn koer(&mut self, kortdata: &Kortdata, mappe: &Path) {
+    async fn koer(&mut self, kortdata: &Kortdata) {
+        let mappe = &*kortdata.mappe;
         let bygget = tokio::fs::read_to_string(mappe.join(BYGGET_FIL)).await.ok();
         if kortdata.hent().is_some() && bygget == self.bygget {
             return;

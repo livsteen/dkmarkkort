@@ -20,5 +20,10 @@ pub const OVERBLIK_FIL: &str = "overblik.mbtiles";
 /// blanding af gamle og nye filer.
 pub const BYGGET_FIL: &str = "bygget";
 
+/// Skrives af pipeline-containeren med tidspunktet, når pipelinen fejler, og
+/// slettes igen, når den lykkes. Så kan serveren skelne en fejl fra en
+/// pipeline, der stadig arbejder.
+pub const FEJLET_FIL: &str = "fejlet";
+
 /// Lagnavnet inde i vektortiles'ene.
 pub const TILES_LAG: &str = "marker";

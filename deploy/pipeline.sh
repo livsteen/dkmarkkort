@@ -3,11 +3,16 @@
 # tjekker én gang i døgnet. Data bygges, når der ingen er, når pipelinen er
 # ændret siden sidst, eller når de er mere end 30 dage gamle. Serveren
 # opdager selv de nye data.
+#
+# Fejler pipelinen, skrives tidspunktet i /data/fejlet, så serveren kan sige
+# det, og der prøves igen om en time. Filen slettes, når pipelinen lykkes.
 set -uo pipefail
 
 data="${MARKKORT_DATA:-/data}"
 version="$(cat /app/pipelineversion)"
 maks_alder_dage=30
+vent_sekunder=86400
+vent_efter_fejl_sekunder=3600
 
 # Skriver grunden til at bygge og lykkes, hvis data skal bygges.
 skal_bygges() {
@@ -26,15 +31,19 @@ skal_bygges() {
 }
 
 while true; do
+	vent="$vent_sekunder"
 	if grund="$(skal_bygges)"; then
 		echo "==> Bygger data: $grund"
 		cp /app/input/* "$data/"
 		if /app/dkmarkkort-pipeline --data "$data"; then
 			echo "$version" >"$data/pipelineversion"
+			rm -f "$data/fejlet"
 			echo "==> Data er bygget"
 		else
-			echo "==> Pipelinen fejlede, prøver igen om et døgn" >&2
+			date -u +%Y-%m-%dT%H:%M:%SZ >"$data/fejlet"
+			vent="$vent_efter_fejl_sekunder"
+			echo "==> Pipelinen fejlede, prøver igen om en time" >&2
 		fi
 	fi
-	sleep 86400
+	sleep "$vent"
 done
