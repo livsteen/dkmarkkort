@@ -179,6 +179,11 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
         "marker",
         "-nlt",
         "MULTIPOLYGON",
+        // Geometrikolonnen i et SQL-resultat navngives forskelligt fra
+        // GDAL-version til GDAL-version, og resten af pipelinen slår op i
+        // geom.
+        "-lco",
+        "GEOMETRY_NAME=geom",
         "-dialect",
         "SQLITE",
         "-sql",
