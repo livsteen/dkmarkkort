@@ -15,5 +15,10 @@ pub const TILES_FIL: &str = "marker.mbtiles";
 /// hvor der ingen mark er.
 pub const OVERBLIK_FIL: &str = "overblik.mbtiles";
 
+/// Skrives af pipelinen, når de tre filer ovenfor alle er på plads, og
+/// indeholder tidspunktet. En server der holder øje med den, åbner aldrig en
+/// blanding af gamle og nye filer.
+pub const BYGGET_FIL: &str = "bygget";
+
 /// Lagnavnet inde i vektortiles'ene.
 pub const TILES_LAG: &str = "marker";
