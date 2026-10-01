@@ -1,5 +1,5 @@
 /target/
-# Alt i data/ undtagen pipelinens input, der ligger i repoet.
+# Alt i data/ undtagen pipelinens input, der ligger i repoet.!
 /data/*
 !/data/dagi-landsdele.geojson
 !/data/afgroedekoder-*.csv
