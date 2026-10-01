@@ -1,0 +1,55 @@
+name: deploy
+
+# Kun push til main og manuel start. Ingen pull_request-trigger,
+# så fremmede PR'er aldrig kører kode på serveren.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: dkmarkkort
+  MARKKORT_DATA_DIR: /Users/server/dkmarkkort-data
+  APP_HOST: dkmarkkort.livsteen.dk
+
+jobs:
+  deploy:
+    # Kun når DU pusher eller starter den
+    if: github.actor == 'Photic'
+    runs-on: [self-hosted, dkmarkkort]
+    concurrency: deploy-dkmarkkort
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tjek at data findes
+        run: |
+          for f in markkort.gpkg marker.mbtiles overblik.mbtiles; do
+            test -f "$MARKKORT_DATA_DIR/$f" || { echo "Mangler $MARKKORT_DATA_DIR/$f" >&2; exit 1; }
+          done
+
+      - name: Byg image
+        run: docker build -t "$IMAGE:${{ github.sha }}" .
+
+      - name: Deploy
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: docker compose -p dkmarkkort up -d --remove-orphans
+
+      - name: Health check
+        id: health
+        run: bash deploy/healthcheck.sh "$APP_HOST"
+
+      - name: Markér som sidst kendte gode version
+        run: docker image tag "$IMAGE:${{ github.sha }}" "$IMAGE:prod"
+
+      - name: Rollback til sidst kendte gode version
+        if: failure() && steps.health.outcome == 'failure'
+        env:
+          IMAGE_TAG: prod
+        run: |
+          docker compose -p dkmarkkort up -d
+          bash deploy/healthcheck.sh "$APP_HOST"
+

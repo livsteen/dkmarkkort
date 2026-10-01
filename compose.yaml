@@ -1,0 +1,22 @@
+services:
+  app:
+    image: dkmarkkort:${IMAGE_TAG:?IMAGE_TAG mangler}
+    restart: unless-stopped
+    networks: [caddy]
+    volumes:
+      # Data bygges med dkmarkkort-pipeline uden for containeren
+      - ${MARKKORT_DATA_DIR:?MARKKORT_DATA_DIR mangler}:/data:ro
+    labels:
+      caddy: http://dkmarkkort.livsteen.dk
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  caddy:
+    external: true
+
