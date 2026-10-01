@@ -17,7 +17,7 @@ use topcoat::{
     view::{Child, View, component, view},
 };
 
-use crate::data::{Data, Landsdel};
+use crate::data::{Data, Kortdata, Landsdel, Udgave};
 
 const OL_JS: Asset = asset!("assets/vendor/openlayers/ol.js");
 const OL_CSS: Asset = asset!("assets/vendor/openlayers/ol.css");
@@ -60,7 +60,34 @@ const FORSLAG: &str = "flex cursor-pointer items-center gap-2 px-2 py-1 aria-sel
 
 #[page("/")]
 async fn kort(cx: &Cx) -> Result<impl View> {
-    let data: &Data = app_context(cx);
+    let data = app_context::<Kortdata>(cx).hent();
+    Ok(view! {
+        match data.as_deref() {
+            Some(data) => kortside(data: data),
+            None => bygges(),
+        }
+    })
+}
+
+/// Vises indtil pipelinen har bygget data første gang.
+#[component]
+async fn bygges() -> Result<impl View> {
+    Ok(view! {
+        dokument(
+            titel: "Markkort",
+            <main class="mx-auto max-w-2xl px-5 py-10 leading-relaxed text-stone-800">
+                <h1 class="text-3xl font-semibold">"Kortdata bygges"</h1>
+                <p class="mt-3 text-stone-600">
+                    "Markerne hentes og gøres klar til kortet. Det tager et stykke tid "
+                    "første gang. Prøv igen om lidt."
+                </p>
+            </main>
+        )
+    })
+}
+
+#[component]
+async fn kortside(data: &Data) -> Result<impl View> {
     let aar = data.udgave.as_ref().map_or("", |u| u.aar.as_str());
     let kreditering = [
         kilder::MARKER.kreditering,
@@ -282,9 +309,15 @@ async fn kort(cx: &Cx) -> Result<impl View> {
 
 #[page("/kilder")]
 async fn kilder_og_vilkaar(cx: &Cx) -> Result<impl View> {
-    let data: &Data = app_context(cx);
-    let udgave = data.udgave.as_ref();
+    let data = app_context::<Kortdata>(cx).hent();
+    Ok(view! {
+        kildeside(udgave: data.as_ref().and_then(|d| d.udgave.as_ref()))
+    })
+}
 
+/// Kilderne med udgaven af markdata, hvis der er nogen endnu.
+#[component]
+async fn kildeside(udgave: Option<&Udgave>) -> Result<impl View> {
     Ok(view! {
         dokument(
             titel: "Kilder og vilkår – Markkort",

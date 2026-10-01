@@ -1,7 +1,8 @@
 //! Serveren bag markkortet: siderne, vektortiles'ene og kortets egne filer.
 //!
 //! Data bygges af `dkmarkkort-pipeline` og læses fra mappen i
-//! `MARKKORT_DATA` (standard: `data`). Serveren lytter på `HOST` og `PORT`
+//! `MARKKORT_DATA` (standard: `data`). Serveren starter også uden data og
+//! viser dem, når pipelinen har bygget dem. Serveren lytter på `HOST` og `PORT`
 //! (standard: 127.0.0.1:3000).
 
 mod data;
@@ -16,7 +17,7 @@ use topcoat::{
     router::{Router, RouterBuilderDiscoverExt},
 };
 
-use crate::data::Data;
+use crate::data::Kortdata;
 
 #[tokio::main]
 async fn main() {
@@ -24,13 +25,7 @@ async fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("data"));
 
-    let data = match Data::aabn(&mappe).await {
-        Ok(data) => data,
-        Err(fejl) => {
-            eprintln!("dkmarkkort: {fejl}");
-            exit(1);
-        }
-    };
+    let data = Kortdata::hold_opdateret(mappe).await;
 
     let assets = match AssetBundle::load() {
         Ok(assets) => assets,

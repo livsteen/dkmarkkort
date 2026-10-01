@@ -1,0 +1,34 @@
+services:
+  app:
+    image: dkmarkkort:${IMAGE_TAG:?IMAGE_TAG mangler}
+    restart: unless-stopped
+    networks: [caddy]
+    volumes:
+      # Pipelinen bygger data, serveren læser dem
+      - markkort-data:/data:ro
+    labels:
+      caddy: http://dkmarkkort.livsteen.dk
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  pipeline:
+    image: dkmarkkort-pipeline:${IMAGE_TAG:?IMAGE_TAG mangler}
+    restart: unless-stopped
+    volumes:
+      - markkort-data:/data
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  caddy:
+    external: true
+
+volumes:
+  markkort-data:
+

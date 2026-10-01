@@ -19,7 +19,8 @@
 //!
 //! Alt mellemliggende ligger i `<data>/work`, og det hentede i `<data>/raw`.
 //! Resultatfilerne bygges i `work` og flyttes først når alle er færdige, så
-//! en kørende server aldrig åbner en halv fil.
+//! en kørende server aldrig åbner en halv fil. Til sidst skrives `bygget`
+//! med tidspunktet, som tegn på at alle tre er på plads.
 
 mod afgroedekoder;
 mod hent;
@@ -33,7 +34,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use dkmarkkort_core::{DATABASE_FIL, OVERBLIK_FIL, TILES_FIL, TILES_LAG, gruppe::Gruppe, kilder};
+use dkmarkkort_core::{
+    BYGGET_FIL, DATABASE_FIL, OVERBLIK_FIL, TILES_FIL, TILES_LAG, gruppe::Gruppe, kilder,
+};
+use jiff::Timestamp;
 use sqlx::{Connection, SqliteConnection, sqlite::SqliteConnectOptions};
 use tokio::fs;
 
@@ -342,6 +346,7 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
     fs::rename(&database, data.join(DATABASE_FIL)).await?;
     fs::rename(&tiles, data.join(TILES_FIL)).await?;
     fs::rename(&overblik, data.join(OVERBLIK_FIL)).await?;
+    fs::write(data.join(BYGGET_FIL), Timestamp::now().to_string()).await?;
 
     opsummer(&data.join(DATABASE_FIL)).await?;
     Ok(())

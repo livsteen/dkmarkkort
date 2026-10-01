@@ -1,0 +1,55 @@
+name: deploy
+
+# Kun push til main og manuel start. Ingen pull_request-trigger,
+# så fremmede PR'er aldrig kører kode på serveren.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: dkmarkkort
+  PIPELINE_IMAGE: dkmarkkort-pipeline
+  APP_HOST: dkmarkkort.livsteen.dk
+
+jobs:
+  deploy:
+    # Kun når DU pusher eller starter den
+    if: github.actor == 'Photic'
+    runs-on: [self-hosted, dkmarkkort]
+    concurrency: deploy-dkmarkkort
+    steps:
+      - uses: actions/checkout@v5
+
+      # Serveren starter også uden data og viser dem, når pipelinen har
+      # bygget dem.
+      - name: Byg images
+        run: |
+          docker build -t "$IMAGE:${{ github.sha }}" .
+          docker build --target pipeline -t "$PIPELINE_IMAGE:${{ github.sha }}" .
+
+      - name: Deploy
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: docker compose -p dkmarkkort up -d --remove-orphans
+
+      - name: Health check
+        id: health
+        run: bash deploy/healthcheck.sh "$APP_HOST"
+
+      - name: Markér som sidst kendte gode version
+        run: |
+          docker image tag "$IMAGE:${{ github.sha }}" "$IMAGE:prod"
+          docker image tag "$PIPELINE_IMAGE:${{ github.sha }}" "$PIPELINE_IMAGE:prod"
+
+      - name: Rollback til sidst kendte gode version
+        if: failure() && steps.health.outcome == 'failure'
+        env:
+          IMAGE_TAG: prod
+        run: |
+          docker compose -p dkmarkkort up -d
+          bash deploy/healthcheck.sh "$APP_HOST"
+

@@ -82,10 +82,26 @@ cargo test --workspace
 
 ## Docker
 
-Imaget indeholder serveren. Data bygges med pipelinen og mountes:
+Dockerfile'en bygger to images: serveren og pipelinen. I `compose.yaml` deler
+de data i et volume, som serveren kun kan læse.
 
 ```bash
 docker build -t dkmarkkort .
+docker build --target pipeline -t dkmarkkort-pipeline .
+```
+
+Serveren starter også uden data og viser "Kortdata bygges", indtil de findes.
+Den ser hvert 30. sekund efter filen `bygget`, som pipelinen skriver til
+sidst, og skifter selv til de nye data uden genstart.
+
+Pipeline-containeren tjekker én gang i døgnet og bygger data, når der ingen
+er, når pipelinens fingeraftryk (pipeline, core, inputfilerne i `data/` og
+`Cargo.lock`) har ændret sig, eller når data er mere end 30 dage gamle. Se
+`deploy/pipeline.sh`.
+
+Data bygget lokalt kan også mountes direkte:
+
+```bash
 docker run --rm -p 3000:3000 -v "$PWD/data:/data:ro" dkmarkkort
 ```
 

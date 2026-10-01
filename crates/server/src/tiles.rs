@@ -9,30 +9,29 @@
 use sqlx::SqlitePool;
 use topcoat::{
     Result,
-    context::{Cx, app_context},
+    context::Cx,
     router::{Body, StatusCode, error::not_found, path_param, response::Response, route},
 };
 
-use crate::data::Data;
+use crate::data::kortdata;
 
 path_param!(z: u8, error = not_found);
 path_param!(x: u32, error = not_found);
 path_param!(y: u32, error = not_found);
 
-/// Tiles'ene ændrer sig kun når pipelinen kører igen, og det kræver en
-/// genstart af serveren. En time er kort nok til at en ny udgave slår
-/// igennem samme dag.
+/// Tiles'ene ændrer sig kun når pipelinen kører igen. En time er kort nok
+/// til at en ny udgave slår igennem samme dag.
 const CACHE: &str = "public, max-age=3600";
 
 #[route(GET "/tiles/{z}/{x}/{y}")]
 async fn tile(cx: &Cx) -> Result<Response> {
-    let data: &Data = app_context(cx);
+    let data = kortdata(cx)?;
     fra_mbtiles(cx, &data.tiles, "application/vnd.mapbox-vector-tile").await
 }
 
 #[route(GET "/overblik/{z}/{x}/{y}")]
 async fn overblik(cx: &Cx) -> Result<Response> {
-    let data: &Data = app_context(cx);
+    let data = kortdata(cx)?;
     fra_mbtiles(cx, &data.overblik, "image/png").await
 }
 
