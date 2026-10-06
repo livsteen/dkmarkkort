@@ -35,7 +35,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use dkmarkkort_core::{
-    BYGGET_FIL, DATABASE_FIL, OVERBLIK_FIL, TILES_FIL, TILES_LAG, gruppe::Gruppe, kilder,
+    BYGGET_FIL, DATABASE_FIL, OVERBLIK_FIL, TILES_FIL, TILES_LAG, UDEN_CVR, gruppe::Gruppe, kilder,
 };
 use jiff::Timestamp;
 use sqlx::{Connection, SqliteConnection, sqlite::SqliteConnectOptions};
@@ -214,6 +214,15 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
                              FROM landsdele n)
                       LIMIT 1)
          WHERE nuts3 IS NULL",
+    )
+    .await?;
+
+    // Marker indberettet uden CVR-nummer samles under ét fælles nummer, så
+    // de kan søges frem som en bedrift. Marknumrene røres ikke; to ens
+    // marknumre skelnes på markens id.
+    ogrinfo_sqlite(
+        &arbejd,
+        &format!("UPDATE marker SET CVR = '{UDEN_CVR}' WHERE CVR IS NULL OR TRIM(CVR) = ''"),
     )
     .await?;
 

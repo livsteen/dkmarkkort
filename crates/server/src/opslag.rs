@@ -55,7 +55,7 @@ struct Forslag {
 struct Mark {
     id: i64,
     marknr: String,
-    /// Tom for de marker der er indberettet uden CVR-nummer.
+    /// `UDEN_CVR` for de marker der er indberettet uden CVR-nummer.
     cvr: String,
     afgroedekode: Option<i64>,
     afgroede: String,

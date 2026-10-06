@@ -25,5 +25,10 @@ pub const BYGGET_FIL: &str = "bygget";
 /// pipeline, der stadig arbejder.
 pub const FEJLET_FIL: &str = "fejlet";
 
+/// CVR-nummeret som pipelinen giver de marker, der er indberettet uden et.
+/// Det er ikke en rigtig bedrift, men gør markerne søgbare samlet ét sted.
+/// Marknumrene kan gå igen under det, så en mark kendes altid på sit id.
+pub const UDEN_CVR: &str = "00000000";
+
 /// Lagnavnet inde i vektortiles'ene.
 pub const TILES_LAG: &str = "marker";

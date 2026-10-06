@@ -213,10 +213,10 @@ impl Data {
             sidst_aendret,
         });
 
-        // Marker uden CVR-nummer hører ikke til nogen bedrift, man kan søge
-        // frem. De kan stadig vælges på kortet.
+        // Marker uden CVR-nummer står under UDEN_CVR og kan søges frem som
+        // en bedrift på linje med de andre.
         let bedrifter = sqlx::query_as::<_, (String, i64)>(
-            "SELECT CVR, COUNT(*) FROM marker WHERE CVR <> '' GROUP BY CVR ORDER BY CVR",
+            "SELECT CVR, COUNT(*) FROM marker GROUP BY CVR ORDER BY CVR",
         )
         .fetch_all(&database)
         .await

@@ -54,7 +54,8 @@ Klikker man på en mark, slår kortet den op på `/mark/{id}` og viser den i et
 panel for sig. En bedrift findes på de første cifre af sit CVR-nummer
 (`/soeg?q=`), og dens marker hentes på `/bedrift/{cvr}`, hvor de kan søges på
 marknummer eller afgrøde. Begge paneler kan trækkes rundt i deres hoved.
-Marker indberettet uden CVR-nummer kan vælges på kortet, men ikke søges frem.
+Marker indberettet uden CVR-nummer samler pipelinen under CVR `00000000`, så de
+kan søges frem som én bedrift. Kortet viser nummeret som "uden CVR-nummer".
 
 ## Kom i gang
 
