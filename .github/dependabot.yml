@@ -1,0 +1,42 @@
+# Placering i repoet: .github/dependabot.yml
+#
+# Sikkerhedsopdateringer (PR'er ved kendte sårbarheder) styres af
+# "Dependabot security updates" i repoets indstillinger og kommer med det
+# samme, uafhængigt af tidsplanen herunder. Denne fil tilføjer de løbende
+# versionsopdateringer, så afhængighederne ikke når at blive gamle.
+version: 2
+
+updates:
+  # Rust-crates fra Cargo.toml / Cargo.lock
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Copenhagen
+    open-pull-requests-limit: 5
+    groups:
+      # Saml minor- og patch-opdateringer i én PR, så der kun skal merges
+      # (og dermed deployes) én gang. Major-opdateringer får hver sin PR.
+      rust-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # Base-images i Dockerfile
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Copenhagen
+
+  # Actions brugt i .github/workflows (fx actions/checkout)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Copenhagen
