@@ -242,6 +242,10 @@
 		maximumFractionDigits: 2,
 	});
 	const areal = (ha) => (ha === null ? '' : `${hektar.format(ha)} ha`);
+	// Pipelinen samler marker uden CVR-nummer under UDEN_CVR. Nummeret vises,
+	// så man kan søge på det, men det er ikke en rigtig bedrift.
+	const UDEN_CVR = '00000000';
+	const visCvr = (cvr) => (cvr === UDEN_CVR ? `${cvr} · uden CVR-nummer` : cvr);
 	const farve = (gruppe) =>
 		gruppeKnapper.find((knap) => knap.dataset.gruppe === gruppe)?.dataset.farve ?? '';
 
@@ -288,7 +292,7 @@
 			afsnit: mark.afsnit ?? '–',
 			areal: areal(mark.areal) || '–',
 			landsdel: mark.landsdel,
-			cvr: mark.cvr || 'Uden CVR-nummer',
+			cvr: visCvr(mark.cvr),
 		});
 		infoBedriftKnap.disabled = mark.cvr === '';
 		infoEl.hidden = false;
@@ -381,7 +385,7 @@
 				linje.setAttribute('aria-selected', 'false');
 				if (valg.slags === 'bedrift') {
 					udfyld(linje, {
-						cvr: valg.cvr,
+						cvr: visCvr(valg.cvr),
 						marker: `${heltal.format(valg.marker)} ${valg.marker === 1 ? 'mark' : 'marker'}`,
 					});
 				} else {
@@ -505,7 +509,7 @@
 			besked('Bedriftens marker kunne ikke hentes. Prøv igen.');
 			return;
 		}
-		udfyld(bedriftEl, { cvr });
+		udfyld(bedriftEl, { cvr: visCvr(cvr) });
 		bedriftEl.hidden = false;
 		soegEl.value = '';
 		markINavn = null;
