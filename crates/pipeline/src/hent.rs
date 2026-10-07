@@ -14,6 +14,18 @@ use jiff::Timestamp;
 use reqwest::header::LAST_MODIFIED;
 use tokio::{fs, io::AsyncWriteExt};
 
+/// En HTTP-klient der siger hvem den er. Zenodo afviser forespørgsler uden
+/// User-Agent.
+pub fn klient() -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .user_agent(concat!(
+            "dkmarkkort-pipeline/",
+            env!("CARGO_PKG_VERSION"),
+            " (+https://github.com/livsteen/dkmarkkort)"
+        ))
+        .build()?)
+}
+
 /// Hvor og hvornår en kildefil er hentet.
 pub struct Hentet {
     pub url: String,
@@ -35,7 +47,9 @@ pub async fn hent(url: &str, destination: &Path) -> Result<Hentet> {
         return laes_oplysninger(&oplysninger, url).await;
     }
 
-    let svar = reqwest::get(url)
+    let svar = klient()?
+        .get(url)
+        .send()
         .await
         .with_context(|| format!("kunne ikke hente {url}"))?;
     if !svar.status().is_success() {

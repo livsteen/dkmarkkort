@@ -7,12 +7,14 @@ efter afgrødegruppe og med filter på landsdel og gruppe.
 
 ```text
 crates/core       fælles for pipeline og server: afgrødegrupper, datakilder, filnavne
-crates/pipeline   henter markdata og bygger data/markkort.gpkg og data/marker.mbtiles
+crates/pipeline   henter markdata og sprøjtedata og bygger filerne i data/
 crates/server     webserveren (tokio + topcoat + Tailwind)
 data/             dagi-landsdele.geojson og afgroedekoder-<år>.csv ligger i repoet
 ```
 
-**Pipelinen** henter årets markkort fra LandbrugsGIS og bygger tre SQLite-filer:
+**Pipelinen** har to dele, markkortet og sprøjtedata, og begge bygger deres
+filer i `data/`. Markdelen henter årets markkort fra LandbrugsGIS og bygger tre
+SQLite-filer:
 
 - `markkort.gpkg` (GeoPackage) med alle marker, deres afgrødekode, afsnit og
   afgrødegruppe og den landsdel de ligger i, samt landsdelene, kodelisten og
@@ -40,7 +42,32 @@ Koder som oversigten ikke kender, vises som "Ukendt kode". Står en kode under
 to afsnit med hver sin gruppe, stopper pipelinen, indtil valget er truffet i
 `crates/pipeline/src/afgroedekoder.rs`.
 
-**Serveren** læser de tre filer skrivebeskyttet, renderer siderne og leverer
+**Sprøjtedelen** henter pesticidforbruget fra landmændenes sprøjtejournaler,
+som Landbruget.dk har fordelt ud på markerne og udgivet på
+[Zenodo](https://zenodo.org/records/21072130). Landmændene indberetter
+forbruget for hele bedriften pr. afgrøde, så tallene for en mark er en
+beregnet fordeling og ikke målinger. Datasættet dækker planperioderne fra
+2010/11 til 2024/25, dog ikke 2014/15. En planperiode går fra 1. august til
+31. juli, og markerne er fra Fællesskemaet året efter, hvor afgrøden høstes.
+
+Pipelinen slår nyeste version af datasættet op på Zenodo, henter dens zip
+(2,6 GB) til `data/raw/sproejtning-<versionens id>.zip` og sletter tidligere
+versioner. Den bygger:
+
+- `sproejtning.gpkg` med de sprøjtede marker for hver planperiode, hvad der
+  er brugt på dem, og midlerne. Hver mark har sin belastning pr. hektar
+  (mængden af hvert middel gange middelets belastning, lagt sammen og delt
+  med arealet), antal midler og om der er brugt PFAS-midler.
+- `sproejtning-<år>.mbtiles` for hver planperiode, med markernes id og
+  belastning fra zoom 10 til 14. Året er det år planperioden begynder.
+
+Datasættet er Parquet, som Debians GDAL ikke kan læse. Pipelinen læser det
+derfor selv fra zip'en og lader GDAL bygge geometrien ud fra WKB. Undervejs
+rettes datasættets kendte fejl: geometrien er mærket WGS84 men er UTM32, og de
+ældste år har samme mark flere gange. Pipelinen skriver for hver planperiode,
+hvor mange marker og sprøjtninger der kom med, og hvad der blev sprunget over.
+
+**Serveren** læser markernes tre filer skrivebeskyttet, renderer siderne og leverer
 vektortiles på `/tiles/{z}/{x}/{y}` og oversigten på `/overblik/{z}/{x}/{y}`.
 Kortet i browseren er OpenLayers, som ligger i
 `crates/server/assets/vendor/openlayers/`.
@@ -66,12 +93,14 @@ kun bruges til at trække afgrødekoderne ud.
 brew install gdal tippecanoe poppler
 cargo install topcoat-cli --version 0.9.0 --locked
 
-cargo run -p dkmarkkort-pipeline      # henter ~350 MB og bygger data/
+cargo run -p dkmarkkort-pipeline      # henter ~3 GB og bygger data/ på omkring 20 minutter
 sh run.sh                             # udviklingsserver på 0.0.0.0:3000, genstarter en kørende
 ```
 
-Pipelinen tager `--aar` og `--data`. Serveren læser data fra `MARKKORT_DATA`
-(standard `data`) og lytter på `HOST` og `PORT`.
+Pipelinen tager `--aar` og `--data`. Med `--genbrug-sproejtning` springer
+den sprøjtedelen over, hvis dataene i `data/` allerede er bygget fra nyeste
+version af datasættet; så tager en kørsel et par minutter. Serveren læser data
+fra `MARKKORT_DATA` (standard `data`) og lytter på `HOST` og `PORT`.
 
 Før push:
 
@@ -95,10 +124,24 @@ Serveren starter også uden data og viser "Kortdata bygges", indtil de findes.
 Den ser hvert 30. sekund efter filen `bygget`, som pipelinen skriver til
 sidst, og skifter selv til de nye data uden genstart.
 
-Pipeline-containeren tjekker én gang i døgnet og bygger data, når der ingen
-er, når pipelinens fingeraftryk (pipeline, core, inputfilerne i `data/` og
-`Cargo.lock`) har ændret sig, eller når data er mere end 30 dage gamle. Se
-`deploy/pipeline.sh`.
+Pipeline-containeren tjekker én gang i døgnet, om data skal bygges, se
+`deploy/pipeline.sh`:
+
+- Når der ingen data er, bygges det hele. Det sker første gang containeren
+  starter.
+- Når pipelinens fingeraftryk (pipeline, core, inputfilerne i `data/` og
+  `Cargo.lock`) har ændret sig, bygges det hele igen.
+- Når data er mere end 30 dage gamle, hentes markkortet forfra, fordi
+  Landbrugsstyrelsen opdaterer det løbende. Sprøjtedata bygges kun igen, hvis
+  Landbruget.dk har udgivet en ny version af datasættet, hvilket sker
+  sjældnere end én gang om året.
+
+Fejler en kørsel, prøves der igen om en time, og kortet viser imens de data
+det har.
+
+Volumet fylder omkring 14 GB: de hentede zip-filer 3 GB, markernes filer
+1,2 GB, sprøjtningens 5,2 GB og pipelinens mellemfiler resten. En kørsel tager
+omkring 20 minutter, og pipelinen selv bruger op til 2 GB hukommelse.
 
 Data bygget lokalt kan også mountes direkte:
 
@@ -113,6 +156,7 @@ docker run --rm -p 3000:3000 -v "$PWD/data:/data:ro" dkmarkkort
 | Markkort | [Landbrugsstyrelsen](https://landbrugsgeodata.fvm.dk/) | Ingen licens angivet |
 | Oversigt over afgrødekoder | [Landbrugsstyrelsen](https://lbst.dk/tilskud/tast-selv/afgroedekoder) | Ingen licens angivet |
 | Landsdele (DAGI) | [Klimadatastyrelsen](https://datafordeler.dk/vejledning/brugervilkaar/kds-geografiske-data/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.da) |
+| Sprøjtedata fordelt på marker | [Landbruget.dk](https://zenodo.org/records/21072130) efter Miljøstyrelsen og Landbrugsstyrelsen | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.da) |
 | Baggrundskort | [OpenStreetMap-bidragydere](https://www.openstreetmap.org/copyright) | [ODbL](https://opendatacommons.org/licenses/odbl/) |
 | Satellitbilleder | [Esri](https://goto.arcgisonline.com/maps/World_Imagery) | Esris brugsvilkår |
 

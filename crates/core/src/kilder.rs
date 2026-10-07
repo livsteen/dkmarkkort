@@ -64,6 +64,28 @@ pub const LANDSDELE: Kilde = Kilde {
     note: None,
 };
 
+pub const SPROEJTNING: Kilde = Kilde {
+    id: "sproejtning",
+    titel: "Pesticidforbrug fra sprøjtejournalerne, fordelt på marker",
+    udgiver: "Landbruget.dk, efter data fra Miljøstyrelsen og Landbrugsstyrelsen",
+    // Datasættets adresse på tværs af versioner; den viser altid nyeste.
+    url: "https://zenodo.org/records/21072130",
+    licens: "CC BY 4.0",
+    licens_url: Some("https://creativecommons.org/licenses/by/4.0/deed.da"),
+    kreditering: "Sprøjtning: Landbruget.dk efter Miljøstyrelsen og Landbrugsstyrelsen, \
+                  indeholder data fra Geodatastyrelsen, CC BY 4.0, bearbejdet",
+    bearbejdning: Some(
+        "For hver mark er mængden af hvert middel ganget med middelets belastning, lagt \
+         sammen og delt med markens areal. Geometrien er forenklet i vektortiles'ene.",
+    ),
+    note: Some(
+        "Landmændene indberetter forbruget for hele bedriften pr. afgrøde, ikke pr. mark. \
+         Landbruget.dk har fordelt det ud på bedriftens marker med den afgrøde, så tallene \
+         for en mark er en beregnet fordeling og ikke målinger. Der er hverken datoer \
+         eller antal sprøjtninger.",
+    ),
+};
+
 pub const OPENSTREETMAP: Kilde = Kilde {
     id: "openstreetmap",
     titel: "Baggrundskort",

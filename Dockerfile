@@ -1,6 +1,6 @@
 # To images fra samme build: serveren (standard) og pipelinen, der bygger
-# markkort.gpkg, marker.mbtiles og overblik.mbtiles i /data. De deler data
-# gennem et volume, se compose.yaml.
+# markkort.gpkg, marker.mbtiles, overblik.mbtiles og sprøjtningens filer i
+# /data. De deler data gennem et volume, se compose.yaml.
 #
 #   docker build -t dkmarkkort .
 #   docker build --target pipeline -t dkmarkkort-pipeline .
