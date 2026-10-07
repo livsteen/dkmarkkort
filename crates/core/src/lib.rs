@@ -47,6 +47,12 @@ pub const TILES_LAG: &str = "marker";
 /// Lagnavnet inde i sprøjtningens vektortiles.
 pub const SPROEJTNING_LAG: &str = "sproejtning";
 
+/// Sprøjtejournalernes koder for mængder i kg og i liter. Et middels
+/// belastning er opgjort pr. kg eller liter, så kun mængder i de to enheder
+/// kan regnes om til belastning.
+pub const ENHED_KG: i64 = 2;
+pub const ENHED_LITER: i64 = 4;
+
 /// Planperioden der begynder 1. august i `aar` og slutter 31. juli året
 /// efter, skrevet som 2024/25.
 pub fn planperiode(aar: u16) -> String {

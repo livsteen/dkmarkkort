@@ -10,6 +10,12 @@
 // Alt andet om en mark end det kortet tegner, står i databasen. Et klik på en
 // mark og en søgning efter en bedrift spørger derfor serveren (`/mark/{id}`,
 // `/soeg`, `/bedrift/{cvr}`), og svaret sættes ind i sidens skabeloner.
+//
+// Sprøjtelaget viser de sprøjtede marker for én planperiode ad gangen, farvet
+// efter belastning. Det er et lag for sig over markerne, fordi markerne i
+// sprøjtedata er dem der var det år. Med laget tændt viser et klik på en mark
+// også, hvad der er sprøjtet på stedet planperiode for planperiode
+// (`/sproejtning/sted`).
 
 (() => {
 	'use strict';
@@ -30,10 +36,25 @@
 	const bedriftRydKnap = document.getElementById('bedrift-ryd');
 	const skabelonBedrift = document.getElementById('skabelon-bedrift');
 	const skabelonMark = document.getElementById('skabelon-mark');
+	const sproejtKontakt = document.getElementById('sproejtning-kontakt');
+	const sproejtIndholdEl = document.getElementById('sproejtning-indhold');
+	const sproejtAarEl = document.getElementById('sproejtning-aar');
+	const sproejtZoomEl = document.getElementById('sproejtning-zoom');
+	const infoSproejtEl = document.getElementById('info-sproejtning');
+	const historikEl = document.getElementById('historik');
+	const skabelonPeriode = document.getElementById('skabelon-periode');
+	const skabelonMiddel = document.getElementById('skabelon-middel');
 
 	const filter = {
 		nuts3: null,
 		slukket: new Set(),
+	};
+
+	// Sprøjtelaget og den planperiode det viser. Uden sprøjtedata er der
+	// hverken kontakt eller årvælger på siden.
+	const sproejtning = {
+		taendt: false,
+		aar: Number(sproejtAarEl?.value),
 	};
 
 	const fraGrader = (udstraekning) =>
@@ -71,18 +92,28 @@
 		]),
 	);
 
+	// Med sprøjtelaget tændt er markerne grå flader under det, så
+	// afgrødernes farver ikke blandes med sprøjtelagets.
+	const graa = new ol.style.Style({
+		fill: new ol.style.Fill({ color: 'rgba(120, 118, 112, 0.25)' }),
+		stroke: new ol.style.Stroke({ color: 'rgba(40, 40, 40, 0.3)', width: 0.6 }),
+	});
+
 	// Marken fra serveren, som den står i info-panelet.
 	let valgt = null;
 
 	const stil = (mark) => {
 		const gruppe = mark.get('gruppe');
 		// Den valgte mark vises også når et filter ville skjule den: den er
-		// valgt for at blive set.
+		// valgt for at blive set. Med sprøjtelaget tændt tegnes dens kant i
+		// et lag over sprøjtelaget.
 		if (valgt !== null && mark.getId() === valgt.id) {
+			if (sproejtning.taendt) return graa;
 			return fremhaevet.get(gruppe) ?? fremhaevet.get('ukendt');
 		}
 		if (filter.slukket.has(gruppe)) return null;
 		if (filter.nuts3 !== null && mark.get('nuts3') !== filter.nuts3) return null;
+		if (sproejtning.taendt) return graa;
 		return stile.get(gruppe) ?? stile.get('ukendt');
 	};
 
@@ -107,6 +138,49 @@
 		}),
 		style: stil,
 	});
+
+	// Sprøjtelaget ligger over markerne, så den valgte marks røde kant
+	// tegnes i et lag for sig øverst. Det deler kilde med markerne og tegner
+	// kun den valgte.
+	const kantValgt = new ol.style.Style({
+		stroke: new ol.style.Stroke({ color: '#d7191c', width: 3 }),
+	});
+	const valgtLag = new ol.layer.VectorTile({
+		minZoom: MARKER_FRA,
+		visible: false,
+		source: marker.getSource(),
+		style: (mark) => (valgt !== null && mark.getId() === valgt.id ? kantValgt : null),
+	});
+
+	// Klasserne står i signaturen med deres nedre grænse og farve. En mark
+	// hører til den højeste klasse hvis grænse den når.
+	const klasser = [...document.querySelectorAll('[data-belastning-fra]')].map((punkt) => ({
+		fra: Number(punkt.dataset.belastningFra),
+		farve: punkt.dataset.farve,
+		stil: new ol.style.Style({
+			fill: new ol.style.Fill({ color: punkt.dataset.farve }),
+			stroke: new ol.style.Stroke({ color: 'rgba(90, 40, 0, 0.5)', width: 0.6 }),
+		}),
+	}));
+	const klasse = (belastning) => klasser.findLast((k) => belastning >= k.fra) ?? klasser[0];
+
+	const sproejtKilde = (aar) =>
+		new ol.source.VectorTile({
+			format: new ol.format.MVT(),
+			url: kortEl.dataset.sproejtning.replace('{aar}', aar),
+			minZoom: 10,
+			maxZoom: 14,
+			attributions: link('/kilder', kortEl.dataset.sproejtningKreditering),
+		});
+
+	const sproejtLag = kortEl.dataset.sproejtning
+		? new ol.layer.VectorTile({
+				minZoom: MARKER_FRA,
+				visible: false,
+				source: sproejtKilde(sproejtning.aar),
+				style: (mark) => klasse(mark.get('belastning')).stil,
+			})
+		: null;
 
 	// En pixel i oversigten er gruppens nummer gange 16 plus landsdelens
 	// nummer, eller 0 hvor der ingen mark er. Skyggeren får den som 0–1, så
@@ -142,9 +216,11 @@
 			attributions: kreditering,
 		}),
 		style: {
-			// Landsdel 0 er hele landet.
+			// Landsdel 0 er hele landet. `graa` er 1, når sprøjtelaget er
+			// tændt.
 			variables: {
 				landsdel: 0,
+				graa: 0,
 				...Object.fromEntries(gruppeKnapper.map((knap) => [gruppeVar(knap), 1])),
 			},
 			color: [
@@ -154,7 +230,12 @@
 					['==', gruppeVist, 1],
 					['any', ['==', ['var', 'landsdel'], 0], ['==', landsdelNr, ['var', 'landsdel']]],
 				],
-				['palette', gruppeNr, palet],
+				[
+					'case',
+					['==', ['var', 'graa'], 1],
+					[120, 118, 112, 0.25],
+					['palette', gruppeNr, palet],
+				],
 				[0, 0, 0, 0],
 			],
 		},
@@ -176,7 +257,7 @@
 
 	const kort = new ol.Map({
 		target: kortEl,
-		layers: [...baggrunde, oversigt, marker],
+		layers: [...baggrunde, oversigt, marker, ...(sproejtLag ? [sproejtLag, valgtLag] : [])],
 		view: new ol.View({ center: ol.extent.getCenter(hele), zoom: 7, maxZoom: 20 }),
 		// Kilderne kræver kreditering, så den er foldet ud fra start.
 		controls: [
@@ -228,6 +309,37 @@
 		});
 	});
 
+	// --- Sprøjtelaget ---
+
+	// Laget tegnes kun inde ved markerne. Længere ude siger panelet, at man
+	// skal zoome ind.
+	const visZoomBesked = () => {
+		if (sproejtZoomEl) sproejtZoomEl.hidden = kort.getView().getZoom() > MARKER_FRA;
+	};
+	kort.getView().on('change:resolution', visZoomBesked);
+
+	const saetSproejtning = (taendt) => {
+		sproejtning.taendt = taendt;
+		sproejtKontakt.setAttribute('aria-checked', String(taendt));
+		sproejtIndholdEl.hidden = !taendt;
+		sproejtLag.setVisible(taendt);
+		valgtLag.setVisible(taendt);
+		marker.changed();
+		oversigt.updateStyleVariables({ graa: taendt ? 1 : 0 });
+		visZoomBesked();
+		visSproejtningHer();
+		holdInde(panelEl);
+	};
+
+	if (sproejtLag) {
+		sproejtKontakt.addEventListener('click', () => saetSproejtning(!sproejtning.taendt));
+		sproejtAarEl.addEventListener('change', () => {
+			sproejtning.aar = Number(sproejtAarEl.value);
+			sproejtLag.setSource(sproejtKilde(sproejtning.aar));
+			markerPeriode();
+		});
+	}
+
 	// --- Opslag hos serveren ---
 
 	const hentJson = async (url) => {
@@ -248,6 +360,15 @@
 	const visCvr = (cvr) => (cvr === UDEN_CVR ? `${cvr} · uden CVR-nummer` : cvr);
 	const farve = (gruppe) =>
 		gruppeKnapper.find((knap) => knap.dataset.gruppe === gruppe)?.dataset.farve ?? '';
+	const toDecimaler = new Intl.NumberFormat('da-DK', {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	});
+	const belastningTekst = (belastning) =>
+		belastning === null ? '–' : toDecimaler.format(belastning);
+	// Mængder spænder fra hundrededele af en liter til flere hundrede, så de
+	// vises med tre betydende cifre.
+	const maengde = new Intl.NumberFormat('da-DK', { maximumSignificantDigits: 3 });
 
 	// Sætter tekst ind i elementerne med `data-felt`. `farve` er en baggrund,
 	// alt andet er tekst, så intet fra databasen fortolkes som HTML.
@@ -268,15 +389,100 @@
 	// Et klik kan nå at blive afløst af det næste før serveren svarer. Kun
 	// svaret på det seneste må vises.
 	let valgNr = 0;
+	let historikNr = 0;
+	// Hvor der blev klikket for at vælge marken, som [længde, bredde]. Er
+	// marken fundet i søgningen, er der ikke klikket noget sted.
+	let sted = null;
 
-	const vaelgMark = (mark, { zoom = false } = {}) => {
+	const middelLinje = (middel) => {
+		const linje = skabelonMiddel.content.firstElementChild.cloneNode(true);
+		udfyld(linje, {
+			navn: middel.navn,
+			maengde: `${maengde.format(middel.maengde_pr_ha)} ${middel.enhed ?? ''}`.trim(),
+			belastning: belastningTekst(middel.belastning_pr_ha),
+		});
+		linje.querySelector('[data-pfas]').hidden = middel.pfas !== true;
+		linje.title = `Registreringsnummer ${middel.regnr}`;
+		return linje;
+	};
+
+	const periodeLinje = (periode) => {
+		const linje = skabelonPeriode.content.firstElementChild.cloneNode(true);
+		linje.dataset.aar = periode.aar;
+		const antal = periode.midler.length;
+		const kode = periode.afgroedekode === null ? '' : ` (${periode.afgroedekode})`;
+		udfyld(linje, {
+			farve: periode.belastning === null ? '' : klasse(periode.belastning).farve,
+			planperiode: periode.planperiode,
+			afgroede: `${periode.afgroede ?? 'Ukendt afgrøde'}${kode}`,
+			belastning: belastningTekst(periode.belastning),
+			detaljer: [
+				areal(periode.areal),
+				`${heltal.format(antal)} ${antal === 1 ? 'middel' : 'midler'}`,
+				periode.pfas ? 'PFAS-midler brugt' : null,
+			]
+				.filter(Boolean)
+				.join(' · '),
+		});
+		linje.querySelector('[data-midler]').replaceChildren(...periode.midler.map(middelLinje));
+		return linje;
+	};
+
+	// Den planperiode kortet viser, er fremhævet og foldet ud.
+	const markerPeriode = () => {
+		for (const linje of historikEl.children) {
+			const vist = Number(linje.dataset.aar) === sproejtning.aar;
+			const detaljer = linje.querySelector('details');
+			detaljer.toggleAttribute('data-valgt', vist);
+			detaljer.open = vist;
+		}
+	};
+
+	// Hvad der er sprøjtet der hvor marken blev valgt, når sprøjtelaget er
+	// tændt.
+	const visSproejtningHer = async () => {
+		const nr = ++historikNr;
+		if (!sproejtLag || !sproejtning.taendt || valgt === null) {
+			infoSproejtEl.hidden = true;
+			return;
+		}
+		infoSproejtEl.hidden = false;
+		historikEl.replaceChildren();
+		if (sted === null) {
+			udfyld(infoSproejtEl, {
+				besked: 'Klik på marken på kortet for at se, hvad der er sprøjtet der.',
+			});
+			return;
+		}
+		udfyld(infoSproejtEl, { besked: 'Henter sprøjtningen …' });
+		try {
+			const [lon, lat] = sted;
+			const perioder = await hentJson(`/sproejtning/sted?lon=${lon}&lat=${lat}`);
+			if (nr !== historikNr) return;
+			udfyld(infoSproejtEl, {
+				besked: perioder.length === 0 ? 'Datasættet har ingen sprøjtning her.' : '',
+			});
+			historikEl.replaceChildren(...perioder.map(periodeLinje));
+			markerPeriode();
+		} catch (fejl) {
+			if (nr !== historikNr) return;
+			console.error(fejl);
+			udfyld(infoSproejtEl, { besked: 'Sprøjtningen kunne ikke hentes. Prøv igen.' });
+		}
+		holdInde(infoEl);
+	};
+
+	const vaelgMark = (mark, { zoom = false, klik = null } = {}) => {
 		valgNr += 1;
 		valgt = mark;
+		sted = mark === null ? null : klik;
 		marker.changed();
+		valgtLag.changed();
 		markerValgtIListen();
 
 		if (mark === null) {
 			infoEl.hidden = true;
+			visSproejtningHer();
 			// Står den fravalgte marks nummer i søgefeltet, går det med den.
 			if (soegEl.value === markINavn) soegEl.value = '';
 			markINavn = null;
@@ -297,6 +503,7 @@
 		infoBedriftKnap.disabled = mark.cvr === '';
 		infoEl.hidden = false;
 		holdInde(infoEl);
+		visSproejtningHer();
 
 		if (zoom) vis(fraGrader(mark.udstraekning), 500);
 	};
@@ -320,10 +527,11 @@
 			return;
 		}
 		const nr = ++valgNr;
+		const klik = ol.proj.toLonLat(haendelse.coordinate);
 		try {
 			const mark = await hentJson(`/mark/${ramt.getId()}`);
 			if (nr !== valgNr) return;
-			vaelgMark(mark);
+			vaelgMark(mark, { klik });
 			// Søgefeltet må ikke blive ved med at vise en anden mark end den
 			// valgte.
 			if (bedrift?.marker.some((egen) => egen.id === mark.id)) {

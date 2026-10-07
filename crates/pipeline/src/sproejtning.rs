@@ -32,7 +32,8 @@ use std::{
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use dkmarkkort_core::{
-    SPROEJTNING_DATABASE_FIL, SPROEJTNING_LAG, kilder, planperiode, sproejtning_tiles_fil,
+    ENHED_KG, ENHED_LITER, SPROEJTNING_DATABASE_FIL, SPROEJTNING_LAG, kilder, planperiode,
+    sproejtning_tiles_fil,
 };
 use parquet::{
     file::reader::{FileReader, SerializedFileReader},
@@ -55,11 +56,6 @@ use crate::{
 /// Datasættets id på Zenodo på tværs af versioner. Hver version har
 /// desuden sit eget id.
 const ZENODO_DATASAET: &str = "21072130";
-
-/// Sprøjtejournalernes enheder for mængden. Belastningen er opgjort pr. kg
-/// eller liter middel, så kun de to tæller med i markens belastning.
-const KG: i64 = 2;
-const LITER: i64 = 4;
 
 /// En version af datasættet, som Zenodo beskriver den.
 #[derive(Deserialize)]
@@ -624,7 +620,7 @@ async fn knyt_til_marker(db: &mut SqliteConnection, perioder: &[u16]) -> Result<
     sqlx::query(AssertSqlSafe(format!(
         "CREATE TABLE pr_mark AS
          SELECT s.mark,
-                SUM(CASE WHEN s.enhed IN ({KG}, {LITER})
+                SUM(CASE WHEN s.enhed IN ({ENHED_KG}, {ENHED_LITER})
                          THEN s.maengde * COALESCE(mi.belastning, 0) ELSE 0 END) AS belastning,
                 COUNT(DISTINCT s.regnr) AS antal_midler,
                 COALESCE(MAX(mi.pfas), 0) AS pfas
@@ -679,8 +675,10 @@ async fn knyt_til_marker(db: &mut SqliteConnection, perioder: &[u16]) -> Result<
 async fn byg_database(arbejd: &Path, database: &Path) -> Result<()> {
     slet(database).await?;
     // Datasættet angiver ingen projektion, så GDAL ville gætte på WGS84,
-    // men koordinaterne er UTM32 ligesom Fællesskemaets. Kolonnen fid
-    // bliver GeoPackage'ens fid, så sprøjtningerne kan slå marken op.
+    // men koordinaterne er UTM32 ligesom Fællesskemaets. De lægges i WGS84,
+    // så serveren kan slå et klik på kortet op i R-træet uden selv at
+    // omregne. Kolonnen fid bliver GeoPackage'ens fid, så sprøjtningerne
+    // kan slå marken op.
     ogr2ogr([
         "-f",
         "GPKG",
@@ -690,8 +688,10 @@ async fn byg_database(arbejd: &Path, database: &Path) -> Result<()> {
         "sproejtemarker",
         "-nlt",
         "MULTIPOLYGON",
-        "-a_srs",
+        "-s_srs",
         "EPSG:25832",
+        "-t_srs",
+        "EPSG:4326",
         "-lco",
         "GEOMETRY_NAME=geom",
         "-dialect",

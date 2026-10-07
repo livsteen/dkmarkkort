@@ -1,8 +1,9 @@
 //! Kortsiden og siden med kilder og vilkår.
 //!
 //! Serveren giver browseren alt den skal bruge i markup'en: landsdelenes
-//! udstrækning, gruppernes farver, baggrundskortenes adresser og
-//! krediteringerne. `markkort.js` læser det fra data-attributter.
+//! udstrækning, gruppernes farver, sprøjtelagets planperioder og klasser,
+//! baggrundskortenes adresser og krediteringerne. `markkort.js` læser det
+//! fra data-attributter.
 
 use dkmarkkort_core::{
     gruppe::Gruppe,
@@ -17,7 +18,10 @@ use topcoat::{
     view::{Child, View, component, view},
 };
 
-use crate::data::{Data, Kortdata, Landsdel, Udgave};
+use crate::{
+    data::{Data, Kortdata, Landsdel, SproejtningUdgave, Udgave},
+    sproejtning,
+};
 
 const OL_JS: Asset = asset!("assets/vendor/openlayers/ol.js");
 const OL_CSS: Asset = asset!("assets/vendor/openlayers/ol.css");
@@ -47,6 +51,46 @@ const BAGGRUNDE: [Baggrund; 2] = [
 ];
 
 const OVERSKRIFT: &str = "mb-1.5 block text-xs font-medium text-stone-500";
+
+/// En klasse i sprøjtelaget.
+struct Klasse {
+    /// Laveste belastning pr. hektar i klassen.
+    fra: f64,
+    navn: &'static str,
+    farve: &'static str,
+}
+
+/// Sprøjtelagets klasser. Grænserne fordobles, så hver klasse rummer en
+/// tydelig del af markerne (i 2024/25 36, 24, 30, 8 og 2,5 %), og de få
+/// ekstreme værdier samles i den øverste. Farverne er ColorBrewers
+/// "Oranges": én farvetone fra lys til mørk, som ingen afgrødegruppe bruger.
+const BELASTNING: [Klasse; 5] = [
+    Klasse {
+        fra: 0.0,
+        navn: "Under 1",
+        farve: "#feedde",
+    },
+    Klasse {
+        fra: 1.0,
+        navn: "1–2",
+        farve: "#fdbe85",
+    },
+    Klasse {
+        fra: 2.0,
+        navn: "2–4",
+        farve: "#fd8d3c",
+    },
+    Klasse {
+        fra: 4.0,
+        navn: "4–8",
+        farve: "#e6550d",
+    },
+    Klasse {
+        fra: 8.0,
+        navn: "8 eller mere",
+        farve: "#a63603",
+    },
+];
 
 /// De to paneler over kortet. De kan trækkes rundt i deres hoved, og deres
 /// placering står derfor i `style` frem for i en klasse: `markkort.js`
@@ -110,6 +154,7 @@ async fn kunne_ikke_bygges() -> Result<impl View> {
 #[component]
 async fn kortside(data: &Data) -> Result<impl View> {
     let aar = data.udgave.as_ref().map_or("", |u| u.aar.as_str());
+    let perioder = sproejtning::perioder(data);
     let kreditering = [
         kilder::MARKER.kreditering,
         kilder::AFGROEDEKODER.kreditering,
@@ -128,6 +173,8 @@ async fn kortside(data: &Data) -> Result<impl View> {
                     data-overblik="/overblik/{z}/{x}/{y}"
                     data-danmark=(udstraekning(&samlet(&data.landsdele)))
                     data-kreditering=(kreditering)
+                    data-sproejtning=(if perioder.is_empty() { "" } else { "/sproejtning/{aar}/{z}/{x}/{y}" })
+                    data-sproejtning-kreditering=(kilder::SPROEJTNING.kreditering)
                 ></div>
 
                 <section
@@ -236,6 +283,61 @@ async fn kortside(data: &Data) -> Result<impl View> {
                             </ul>
                         </section>
 
+                        if !perioder.is_empty() {
+                            <section>
+                                <div class="flex items-center justify-between gap-2">
+                                    <h2 id="sproejtning-titel" class="text-xs font-medium text-stone-500">"Sprøjtning"</h2>
+                                    <button
+                                        type="button"
+                                        id="sproejtning-kontakt"
+                                        role="switch"
+                                        aria-checked="false"
+                                        aria-labelledby="sproejtning-titel"
+                                        class="group/kontakt inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full bg-stone-300 transition-colors aria-checked:bg-[#a63603]"
+                                    >
+                                        <span class="size-4 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform group-aria-checked/kontakt:translate-x-4.5"></span>
+                                    </button>
+                                </div>
+                                <div id="sproejtning-indhold" hidden="" class="mt-2 space-y-2">
+                                    <select
+                                        id="sproejtning-aar"
+                                        aria-label="Planperiode"
+                                        class="block w-full rounded-md border border-stone-300 bg-white px-2 py-1.5"
+                                    >
+                                        for (aar, navn) in perioder.iter() {
+                                            <option value=(aar)>"Planperiode " (navn.as_str())</option>
+                                        }
+                                    </select>
+                                    <div>
+                                        <p class="mb-1 text-xs text-stone-500">"Belastning pr. hektar"</p>
+                                        <ul class="space-y-0.5">
+                                            for klasse in BELASTNING.iter() {
+                                                <li
+                                                    class="flex items-center gap-2 px-2"
+                                                    data-belastning-fra=(klasse.fra)
+                                                    data-farve=(klasse.farve)
+                                                >
+                                                    <span
+                                                        class="size-3.5 shrink-0 rounded-sm ring-1 ring-black/20"
+                                                        style=(format!("background: {}", klasse.farve))
+                                                    ></span>
+                                                    (klasse.navn)
+                                                </li>
+                                            }
+                                        </ul>
+                                    </div>
+                                    <p id="sproejtning-zoom" class="text-xs text-stone-700">
+                                        "Zoom ind for at se de sprøjtede marker."
+                                    </p>
+                                    <p class="text-xs text-stone-500">
+                                        "Bedrifterne indberetter deres forbrug pr. afgrøde, ikke pr. mark. "
+                                        "Tallene er en bedrifts forbrug fordelt på dens marker med afgrøden, "
+                                        "et skøn og ikke målinger."
+                                    </p>
+                                </div>
+                            </section>
+                        }
+
                         <section>
                             <h2 class=(OVERSKRIFT)>"Baggrund"</h2>
                             <div class="grid grid-cols-2 gap-1 rounded-lg bg-stone-100 p-1">
@@ -303,6 +405,16 @@ async fn kortside(data: &Data) -> Result<impl View> {
                                 ></button>
                             </dd>
                         </dl>
+                        <section id="info-sproejtning" hidden="" class="border-t border-stone-200 pt-3">
+                            <h3 class=(OVERSKRIFT)>"Sprøjtet her"</h3>
+                            <p class="mb-2 text-xs text-stone-500 empty:hidden" data-felt="besked"></p>
+                            <ol id="historik" class="space-y-0.5"></ol>
+                            <p class="mt-2 text-xs text-stone-500">
+                                "Hver planperiode viser marken der lå her, med den afgrøde der voksede "
+                                "der. Afgrødernes navne er fra kodelisten for " (aar) ". "
+                                "Belastningen er pr. hektar, og tallene er et skøn, ikke målinger."
+                            </p>
+                        </section>
                     </div>
                 </section>
 
@@ -311,6 +423,43 @@ async fn kortside(data: &Data) -> Result<impl View> {
                         <span class="grow">"CVR " <span class="tabular-nums" data-felt="cvr"></span></span>
                         <span class="text-xs text-stone-500 tabular-nums" data-felt="marker"></span>
                     </li>
+                </template>
+                <template id="skabelon-periode">
+                    <li>
+                        <details class="group/periode rounded-md data-valgt:bg-orange-50">
+                            <summary class="flex cursor-pointer list-none items-center gap-2 rounded-md px-1.5 py-1 hover:bg-stone-100 [&::-webkit-details-marker]:hidden">
+                                <span class="text-stone-400 transition-transform group-open/periode:rotate-90" aria-hidden="true">"›"</span>
+                                <span class="size-3 shrink-0 rounded-sm ring-1 ring-black/20" data-felt="farve"></span>
+                                <span class="shrink-0 tabular-nums" data-felt="planperiode"></span>
+                                <span class="grow truncate" data-felt="afgroede"></span>
+                                <span class="shrink-0 text-xs text-stone-500 tabular-nums" data-felt="belastning"></span>
+                            </summary>
+                            <div class="space-y-1 px-1.5 pt-1 pb-2 text-xs">
+                                <p class="text-stone-500" data-felt="detaljer"></p>
+                                <table class="w-full">
+                                    <thead class="text-stone-500">
+                                        <tr>
+                                            <th class="text-left font-normal">"Middel"</th>
+                                            <th class="text-right font-normal">"Pr. ha"</th>
+                                            <th class="pl-2 text-right font-normal">"Belastning"</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody data-midler=""></tbody>
+                                </table>
+                            </div>
+                        </details>
+                    </li>
+                </template>
+                <template id="skabelon-middel">
+                    <tr class="align-top">
+                        <td class="py-0.5 pr-2">
+                            <span data-felt="navn"></span>
+                            " "
+                            <span hidden="" class="rounded bg-stone-200 px-1 text-[10px] font-medium" data-pfas="">"PFAS"</span>
+                        </td>
+                        <td class="py-0.5 text-right whitespace-nowrap tabular-nums" data-felt="maengde"></td>
+                        <td class="py-0.5 pl-2 text-right tabular-nums" data-felt="belastning"></td>
+                    </tr>
                 </template>
                 <template id="skabelon-mark">
                     <li role="option" class=(FORSLAG)>
@@ -332,13 +481,22 @@ async fn kortside(data: &Data) -> Result<impl View> {
 async fn kilder_og_vilkaar(cx: &Cx) -> Result<impl View> {
     let data = app_context::<Kortdata>(cx).hent();
     Ok(view! {
-        kildeside(udgave: data.as_ref().and_then(|d| d.udgave.as_ref()))
+        kildeside(
+            udgave: data.as_ref().and_then(|d| d.udgave.as_ref()),
+            sproejtning: data
+                .as_ref()
+                .and_then(|d| d.sproejtning.as_ref())
+                .and_then(|s| s.udgave.as_ref()),
+        )
     })
 }
 
-/// Kilderne med udgaven af markdata, hvis der er nogen endnu.
+/// Kilderne med udgaven af markdata og sprøjtedata, hvis der er nogen endnu.
 #[component]
-async fn kildeside(udgave: Option<&Udgave>) -> Result<impl View> {
+async fn kildeside(
+    udgave: Option<&Udgave>,
+    sproejtning: Option<&SproejtningUdgave>,
+) -> Result<impl View> {
     Ok(view! {
         dokument(
             titel: "Kilder og vilkår – Markkort",
@@ -394,6 +552,17 @@ async fn kildeside(udgave: Option<&Udgave>) -> Result<impl View> {
                                                 if !udgave.sidst_aendret.is_empty() {
                                                     " (ændret " (udgave.sidst_aendret.as_str()) ")"
                                                 }
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                                if kilde.id == kilder::SPROEJTNING.id {
+                                    if let Some(udgave) = sproejtning {
+                                        <tr>
+                                            <th>"Udgave"</th>
+                                            <td>
+                                                <a href=(udgave.url.as_str())>"Datasættet"</a>
+                                                ", hentet " (dato(&udgave.hentet))
                                             </td>
                                         </tr>
                                     }

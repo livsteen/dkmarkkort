@@ -3,7 +3,8 @@
 //!
 //! Browseren beder om `/tiles/{z}/{x}/{y}` og får markerne i den tile, som
 //! tippecanoe har bygget og gzippet dem. Oversigten, som GDAL har tegnet,
-//! ligger på `/overblik/{z}/{x}/{y}`. Filerne er SQLite-databaser, så et
+//! ligger på `/overblik/{z}/{x}/{y}`, og de sprøjtede marker for en
+//! planperiode på `/sproejtning/{aar}/{z}/{x}/{y}`. Filerne er SQLite-databaser, så et
 //! opslag er én primærnøgle; serveren pakker hverken ud eller om.
 
 use sqlx::SqlitePool;
@@ -15,6 +16,7 @@ use topcoat::{
 
 use crate::data::kortdata;
 
+path_param!(aar: u16, error = not_found);
 path_param!(z: u8, error = not_found);
 path_param!(x: u32, error = not_found);
 path_param!(y: u32, error = not_found);
@@ -33,6 +35,17 @@ async fn tile(cx: &Cx) -> Result<Response> {
 async fn overblik(cx: &Cx) -> Result<Response> {
     let data = kortdata(cx)?;
     fra_mbtiles(cx, &data.overblik, "image/png").await
+}
+
+/// De sprøjtede marker i planperioden der begynder i `aar`.
+#[route(GET "/sproejtning/{aar}/{z}/{x}/{y}")]
+async fn sproejtning(cx: &Cx) -> Result<Response> {
+    let data = kortdata(cx)?;
+    let aar = *path_param::<Aar>(cx)?;
+    let Some(tiles) = data.sproejtning.as_ref().and_then(|s| s.tiles.get(&aar)) else {
+        return Err(not_found().into());
+    };
+    fra_mbtiles(cx, tiles, "application/vnd.mapbox-vector-tile").await
 }
 
 /// Tilen på stien `{z}/{x}/{y}` fra MBTiles-filen i `tiles`.
