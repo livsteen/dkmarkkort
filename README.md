@@ -7,7 +7,7 @@ efter afgrødegruppe og med filter på landsdel og gruppe.
 
 ```text
 crates/core       fælles for pipeline og server: afgrødegrupper, datakilder, filnavne
-crates/pipeline   henter markdata og bygger data/markkort.gpkg og data/marker.mbtiles
+crates/pipeline   henter markdata og sprøjtedata og bygger filerne i data/
 crates/server     webserveren (tokio + topcoat + Tailwind)
 data/             dagi-landsdele.geojson og afgroedekoder-<år>.csv ligger i repoet
 ```
@@ -40,7 +40,26 @@ Koder som oversigten ikke kender, vises som "Ukendt kode". Står en kode under
 to afsnit med hver sin gruppe, stopper pipelinen, indtil valget er truffet i
 `crates/pipeline/src/afgroedekoder.rs`.
 
-**Serveren** læser de tre filer skrivebeskyttet, renderer siderne og leverer
+**Sprøjtedata** er pesticidforbruget fra landmændenes sprøjtejournaler,
+fordelt ud på markerne af Landbruget.dk og udgivet på
+[Zenodo](https://zenodo.org/records/21072131). Landmændene indberetter
+forbruget for hele bedriften pr. afgrøde, så tallene for en mark er en
+beregnet fordeling og ikke målinger. Datasættet dækker planperioderne fra
+2010/11 til 2024/25, dog ikke 2014/15. En planperiode går fra 1. august til
+31. juli, og markerne er fra Fællesskemaet året efter, hvor afgrøden høstes.
+Pipelinen henter zip'en (2,6 GB) og bygger:
+
+- `sproejtning.gpkg` med de sprøjtede marker for hver planperiode, hvad der
+  er brugt på dem, og midlerne. Hver mark har sin belastning pr. hektar
+  (mængden af hvert middel gange middelets belastning, lagt sammen og delt
+  med arealet), antal midler og om der er brugt PFAS-midler.
+- `sproejtning-<år>.mbtiles` for hver planperiode, med markernes id og
+  belastning fra zoom 10 til 14. Året er det år planperioden begynder.
+
+Datasættet er Parquet, som Debians GDAL ikke kan læse. Pipelinen læser det
+derfor selv fra zip'en og lader GDAL bygge geometrien ud fra WKB.
+
+**Serveren** læser markernes tre filer skrivebeskyttet, renderer siderne og leverer
 vektortiles på `/tiles/{z}/{x}/{y}` og oversigten på `/overblik/{z}/{x}/{y}`.
 Kortet i browseren er OpenLayers, som ligger i
 `crates/server/assets/vendor/openlayers/`.
@@ -66,7 +85,7 @@ kun bruges til at trække afgrødekoderne ud.
 brew install gdal tippecanoe poppler
 cargo install topcoat-cli --version 0.9.0 --locked
 
-cargo run -p dkmarkkort-pipeline      # henter ~350 MB og bygger data/
+cargo run -p dkmarkkort-pipeline      # henter ~3 GB og bygger data/
 sh run.sh                             # udviklingsserver på 0.0.0.0:3000, genstarter en kørende
 ```
 
@@ -100,6 +119,10 @@ er, når pipelinens fingeraftryk (pipeline, core, inputfilerne i `data/` og
 `Cargo.lock`) har ændret sig, eller når data er mere end 30 dage gamle. Se
 `deploy/pipeline.sh`.
 
+Volumet fylder omkring 14 GB: de hentede zip-filer 3 GB, markernes filer
+1,2 GB, sprøjtningens 5,2 GB og pipelinens mellemfiler resten. En kørsel tager
+omkring 20 minutter, og pipelinen selv bruger op til 2 GB hukommelse.
+
 Data bygget lokalt kan også mountes direkte:
 
 ```bash
@@ -113,6 +136,7 @@ docker run --rm -p 3000:3000 -v "$PWD/data:/data:ro" dkmarkkort
 | Markkort | [Landbrugsstyrelsen](https://landbrugsgeodata.fvm.dk/) | Ingen licens angivet |
 | Oversigt over afgrødekoder | [Landbrugsstyrelsen](https://lbst.dk/tilskud/tast-selv/afgroedekoder) | Ingen licens angivet |
 | Landsdele (DAGI) | [Klimadatastyrelsen](https://datafordeler.dk/vejledning/brugervilkaar/kds-geografiske-data/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.da) |
+| Sprøjtedata fordelt på marker | [Landbruget.dk](https://zenodo.org/records/21072131) efter Miljøstyrelsen og Landbrugsstyrelsen | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.da) |
 | Baggrundskort | [OpenStreetMap-bidragydere](https://www.openstreetmap.org/copyright) | [ODbL](https://opendatacommons.org/licenses/odbl/) |
 | Satellitbilleder | [Esri](https://goto.arcgisonline.com/maps/World_Imagery) | Esris brugsvilkår |
 
