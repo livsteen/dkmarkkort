@@ -682,4 +682,8 @@
 	};
 
 	minimerKnap.addEventListener('click', () => minimer(!panelIndholdEl.hidden));
+
+	// På en telefon fylder panelet det meste af skærmen, så det starter
+	// minimeret og kortet ses først. Grænsen er Tailwinds `sm`.
+	if (matchMedia('(max-width: 639px)').matches) minimer(true);
 })();
