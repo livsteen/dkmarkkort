@@ -68,7 +68,8 @@ pub const SPROEJTNING: Kilde = Kilde {
     id: "sproejtning",
     titel: "Pesticidforbrug fra sprøjtejournalerne, fordelt på marker",
     udgiver: "Landbruget.dk, efter data fra Miljøstyrelsen og Landbrugsstyrelsen",
-    url: "https://zenodo.org/records/21072131",
+    // Datasættets adresse på tværs af versioner; den viser altid nyeste.
+    url: "https://zenodo.org/records/21072130",
     licens: "CC BY 4.0",
     licens_url: Some("https://creativecommons.org/licenses/by/4.0/deed.da"),
     kreditering: "Sprøjtning: Landbruget.dk efter Miljøstyrelsen og Landbrugsstyrelsen, \

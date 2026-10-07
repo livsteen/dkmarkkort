@@ -2,8 +2,11 @@
 //! fordelt på marker.
 //!
 //! ```text
-//! cargo run -p dkmarkkort-pipeline -- [--aar 2026] [--data data]
+//! cargo run -p dkmarkkort-pipeline -- [--aar 2026] [--data data] [--genbrug-sproejtning]
 //! ```
+//!
+//! Med `--genbrug-sproejtning` bygges sprøjtningen kun, hvis der er kommet
+//! en ny version af datasættet, siden den der ligger, blev bygget.
 //!
 //! Resultatet er SQLite-filer i datamappen:
 //!
@@ -55,6 +58,7 @@ use crate::{
 struct Indstillinger {
     aar: u16,
     data: PathBuf,
+    genbrug_sproejtning: bool,
 }
 
 #[tokio::main]
@@ -67,6 +71,7 @@ async fn main() -> Result<()> {
 fn laes_argumenter() -> Result<Indstillinger> {
     let mut aar = 2026;
     let mut data = PathBuf::from("data");
+    let mut genbrug_sproejtning = false;
     let mut argumenter = std::env::args().skip(1);
     while let Some(argument) = argumenter.next() {
         match argument.as_str() {
@@ -80,14 +85,21 @@ fn laes_argumenter() -> Result<Indstillinger> {
             "--data" => {
                 data = PathBuf::from(argumenter.next().context("--data skal have en mappe")?);
             }
+            "--genbrug-sproejtning" => genbrug_sproejtning = true,
             "-h" | "--help" => {
-                println!("brug: dkmarkkort-pipeline [--aar 2026] [--data data]");
+                println!(
+                    "brug: dkmarkkort-pipeline [--aar 2026] [--data data] [--genbrug-sproejtning]"
+                );
                 std::process::exit(0);
             }
             andet => bail!("ukendt argument: {andet}"),
         }
     }
-    Ok(Indstillinger { aar, data })
+    Ok(Indstillinger {
+        aar,
+        data,
+        genbrug_sproejtning,
+    })
 }
 
 async fn koer(indstillinger: &Indstillinger) -> Result<()> {
@@ -368,14 +380,17 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
     let overblik = overblik::byg(&database, &work).await?;
 
     println!("==> Sprøjtning");
-    let sproejtning = sproejtning::byg(&raw, &work).await?;
+    let sproejtning =
+        sproejtning::byg(data, &raw, &work, indstillinger.genbrug_sproejtning).await?;
 
     fs::rename(&database, data.join(DATABASE_FIL)).await?;
     fs::rename(&tiles, data.join(TILES_FIL)).await?;
     fs::rename(&overblik, data.join(OVERBLIK_FIL)).await?;
-    fs::rename(&sproejtning.database, data.join(SPROEJTNING_DATABASE_FIL)).await?;
-    for (aar, tiles) in &sproejtning.tiles {
-        fs::rename(tiles, data.join(sproejtning_tiles_fil(*aar))).await?;
+    if let Some(sproejtning) = &sproejtning {
+        fs::rename(&sproejtning.database, data.join(SPROEJTNING_DATABASE_FIL)).await?;
+        for (aar, tiles) in &sproejtning.tiles {
+            fs::rename(tiles, data.join(sproejtning_tiles_fil(*aar))).await?;
+        }
     }
     fs::write(data.join(BYGGET_FIL), Timestamp::now().to_string()).await?;
 

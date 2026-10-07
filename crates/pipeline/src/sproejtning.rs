@@ -17,6 +17,11 @@
 //!   om der er brugt PFAS-midler; `sproejtninger` med hvad der er brugt på
 //!   hver mark; `midler` og `datakilde`.
 //! - [`sproejtning_tiles_fil`] for hver planperiode.
+//!
+//! Datasættet hentes altid i nyeste version. Landbruget.dk udgiver en ny,
+//! når der er kommet en planperiode til, så det sker sjældent. Med
+//! `genbrug` bygges sprøjtningen kun igen, hvis der er kommet en ny version,
+//! siden de data der ligger, blev bygget.
 
 use std::{
     fs::File,
@@ -34,6 +39,7 @@ use parquet::{
     record::Field,
     schema::types::Type,
 };
+use serde::Deserialize;
 use sqlx::{
     AssertSqlSafe, Connection, SqliteConnection,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
@@ -41,20 +47,45 @@ use sqlx::{
 use zip::ZipArchive;
 
 use crate::{
-    hent::{Hentet, hent},
+    hent::{Hentet, hent, klient},
     slet, utf8,
     vaerktoej::{ogr2ogr, ogrinfo_sql, tippecanoe},
 };
 
-/// Version 1 af datasættet. En ny version får sin egen adresse på Zenodo.
-const URL: &str =
-    "https://zenodo.org/records/21072131/files/pesticide-field-use-allocations-v1.zip?download=1";
-const ZIP: &str = "pesticide-field-use-allocations-v1.zip";
+/// Datasættets id på Zenodo på tværs af versioner. Hver version har
+/// desuden sit eget id.
+const ZENODO_DATASAET: &str = "21072130";
 
 /// Sprøjtejournalernes enheder for mængden. Belastningen er opgjort pr. kg
 /// eller liter middel, så kun de to tæller med i markens belastning.
 const KG: i64 = 2;
 const LITER: i64 = 4;
+
+/// En version af datasættet, som Zenodo beskriver den.
+#[derive(Deserialize)]
+struct Version {
+    /// Versionens eget id.
+    id: u64,
+    metadata: Metadata,
+    files: Vec<Fil>,
+}
+
+#[derive(Deserialize)]
+struct Metadata {
+    version: String,
+}
+
+#[derive(Deserialize)]
+struct Fil {
+    key: String,
+    links: Links,
+}
+
+#[derive(Deserialize)]
+struct Links {
+    #[serde(rename = "self")]
+    adresse: String,
+}
 
 /// Filerne pipelinen har bygget i `work`.
 pub struct Bygget {
@@ -92,10 +123,24 @@ struct Middel {
     belastning: f64,
 }
 
-/// Henter datasættet og bygger databasen og tiles'ene i `work`.
-pub async fn byg(raw: &Path, work: &Path) -> Result<Bygget> {
-    let zip = raw.join(ZIP);
-    let hentet = hent(URL, &zip).await?;
+/// Henter nyeste version af datasættet og bygger databasen og tiles'ene i
+/// `work`. Med `genbrug` bygges intet, hvis dataene i `data` allerede er
+/// fra den version.
+pub async fn byg(data: &Path, raw: &Path, work: &Path, genbrug: bool) -> Result<Option<Bygget>> {
+    let (version, url) = nyeste_version().await?;
+    println!(
+        "    nyeste version er {} (Zenodo {})",
+        version.metadata.version, version.id
+    );
+    let eksisterende = data.join(SPROEJTNING_DATABASE_FIL);
+    if genbrug && bygget_fra(&eksisterende).await?.as_ref() == Some(&url) {
+        println!("    de data der ligger, er bygget fra den og genbruges");
+        return Ok(None);
+    }
+
+    let zip = raw.join(format!("sproejtning-{}.zip", version.id));
+    let hentet = hent(&url, &zip).await?;
+    slet_andre_versioner(raw, &zip).await?;
     let perioder = laes_blokerende(&zip, planperioder).await?;
     if perioder.is_empty() {
         bail!("{} har ingen planperioder", zip.display());
@@ -164,7 +209,71 @@ pub async fn byg(raw: &Path, work: &Path) -> Result<Bygget> {
     for &aar in &perioder {
         tiles.push((aar, byg_tiles(&database, work, aar).await?));
     }
-    Ok(Bygget { database, tiles })
+    Ok(Some(Bygget { database, tiles }))
+}
+
+/// Nyeste version af datasættet og adressen på dens zip.
+async fn nyeste_version() -> Result<(Version, String)> {
+    let adresse = format!("https://zenodo.org/api/records/{ZENODO_DATASAET}/versions/latest");
+    let svar = klient()?
+        .get(&adresse)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .with_context(|| format!("kunne ikke slå nyeste version op på {adresse}"))?;
+    version_fra_json(&svar.text().await?)
+}
+
+fn version_fra_json(json: &str) -> Result<(Version, String)> {
+    let version: Version = serde_json::from_str(json).context("Zenodo svarede ikke som ventet")?;
+    let url = version
+        .files
+        .iter()
+        .find(|fil| fil.key.ends_with(".zip"))
+        .map(|fil| fil.links.adresse.clone())
+        .with_context(|| format!("version {} har ingen zip", version.id))?;
+    Ok((version, url))
+}
+
+/// Adressen på den zip, `database` er bygget fra, hvis den findes.
+async fn bygget_fra(database: &Path) -> Result<Option<String>> {
+    if !tokio::fs::try_exists(database).await? {
+        return Ok(None);
+    }
+    let mut db = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(database)
+            .read_only(true),
+    )
+    .await?;
+    let url = sqlx::query_scalar("SELECT url FROM datakilde WHERE id = ?")
+        .bind(kilder::SPROEJTNING.id)
+        .fetch_optional(&mut db)
+        .await?;
+    db.close().await?;
+    Ok(url)
+}
+
+/// Sletter tidligere versioner af datasættet i `raw`. De fylder 2–3 GB
+/// hver og bruges ikke igen.
+async fn slet_andre_versioner(raw: &Path, zip: &Path) -> Result<()> {
+    let zip_navn = zip
+        .file_name()
+        .and_then(|navn| navn.to_str())
+        .context("zip'en har intet navn")?;
+    let behold = [zip_navn.to_owned(), format!("{zip_navn}.hentet")];
+    let mut indhold = tokio::fs::read_dir(raw).await?;
+    while let Some(post) = indhold.next_entry().await? {
+        let navn = post.file_name().to_string_lossy().into_owned();
+        let tidligere = navn.starts_with("sproejtning-")
+            && (navn.ends_with(".zip") || navn.ends_with(".zip.hentet"))
+            && !behold.contains(&navn);
+        if tidligere {
+            println!("    sletter {navn}, som er en tidligere version");
+            slet(&post.path()).await?;
+        }
+    }
+    Ok(())
 }
 
 /// Kører `laes` med zip'en åben på en tråd hvor den må blokere: Parquet
@@ -695,5 +804,34 @@ mod tests {
         }
         let mut arkiv = ZipArchive::new(skriver.finish().unwrap()).unwrap();
         assert_eq!(planperioder(&mut arkiv).unwrap(), [2010, 2024]);
+    }
+
+    /// Et afkortet svar fra Zenodo med de felter pipelinen bruger.
+    const ZENODO_SVAR: &str = r#"{
+        "id": 21072131,
+        "conceptrecid": "21072130",
+        "metadata": {"title": "Pesticides on 2.7 Million Danish Fields", "version": "v1"},
+        "files": [
+            {"key": "README.txt", "links": {"self": "https://zenodo.org/api/records/21072131/files/README.txt/content"}},
+            {"key": "pesticide-field-use-allocations-v1.zip", "size": 2624735611,
+             "links": {"self": "https://zenodo.org/api/records/21072131/files/pesticide-field-use-allocations-v1.zip/content"}}
+        ]
+    }"#;
+
+    #[test]
+    fn nyeste_version_peger_paa_zippen() {
+        let (version, url) = version_fra_json(ZENODO_SVAR).unwrap();
+        assert_eq!(version.id, 21072131);
+        assert_eq!(version.metadata.version, "v1");
+        assert_eq!(
+            url,
+            "https://zenodo.org/api/records/21072131/files/pesticide-field-use-allocations-v1.zip/content"
+        );
+    }
+
+    #[test]
+    fn en_version_uden_zip_er_en_fejl() {
+        let uden_zip = r#"{"id": 1, "metadata": {"version": "v9"}, "files": []}"#;
+        assert!(version_fra_json(uden_zip).is_err());
     }
 }
