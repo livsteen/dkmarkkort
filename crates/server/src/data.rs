@@ -9,8 +9,17 @@
 //! start: landsdelene, optællingerne, listen over bedrifter og
 //! afgrødekodernes navne.
 //!
-//! Sprøjtedata er med, når pipelinen har bygget dem; ellers vises kortet
-//! uden sprøjtelaget.
+//! Når en ny version af serveren deployes, ligger de gamle data der, mens
+//! pipelinen bygger nye. Serveren viser dem så godt den kan:
+//!
+//! - Kernen skal kunne læses: markerne, deres tiles, oversigten,
+//!   landsdelene og bedrifterne. Uden den er der intet kort.
+//! - Alt andet er tilvalg, der læses med [`tilvalg`]: afgrødernes navne og
+//!   sprøjtelaget. Mangler et tilvalg, eller er det bygget af en ældre
+//!   pipeline, logges det, og kortet vises uden, indtil pipelinen har bygget
+//!   det. Nyt der kommer til, skal læses sådan.
+//! - Er data bygget i en anden [`DATAVERSION`], er der en breaking change,
+//!   og de gamle data vises ikke. Siden siger så, at kortdata opdateres.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -20,8 +29,8 @@ use std::{
 };
 
 use dkmarkkort_core::{
-    BYGGET_FIL, DATABASE_FIL, FEJLET_FIL, OVERBLIK_FIL, SPROEJTNING_DATABASE_FIL, TILES_FIL,
-    gruppe::Gruppe, kilder, sproejtning_tiles_fil,
+    BYGGET_FIL, DATABASE_FIL, DATAVERSION, DATAVERSION_FIL, FEJLET_FIL, OVERBLIK_FIL,
+    SPROEJTNING_DATABASE_FIL, TILES_FIL, gruppe::Gruppe, kilder, sproejtning_tiles_fil,
 };
 use sqlx::{
     SqlitePool,
@@ -82,8 +91,55 @@ impl Kortdata {
             .unwrap_or(false)
     }
 
+    /// Om der ligger data i en anden version end serverens, så nye er på
+    /// vej.
+    pub async fn opdateres(&self) -> bool {
+        let bygget = tokio::fs::try_exists(self.mappe.join(BYGGET_FIL))
+            .await
+            .unwrap_or(false);
+        bygget && dataversion(&self.mappe).await != Ok(DATAVERSION)
+    }
+
     fn saet(&self, data: Data) {
         *self.data.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(data));
+    }
+}
+
+/// Versionen af data i `mappe`.
+async fn dataversion(mappe: &Path) -> std::result::Result<u32, String> {
+    let indhold = tokio::fs::read_to_string(mappe.join(DATAVERSION_FIL))
+        .await
+        .ok();
+    fortolk_dataversion(indhold.as_deref())
+}
+
+/// Data uden versionsfil er version 1, fra før pipelinen skrev den.
+fn fortolk_dataversion(indhold: Option<&str>) -> std::result::Result<u32, String> {
+    match indhold {
+        None => Ok(1),
+        Some(tekst) => tekst
+            .trim()
+            .parse()
+            .map_err(|_| format!("{DATAVERSION_FIL} indeholder {tekst:?}, ikke et tal")),
+    }
+}
+
+/// Læser et tilvalg: noget kortet kan vises uden. Mangler det, eller er det
+/// bygget af en ældre pipeline, logges hvorfor, og kortet vises uden det,
+/// indtil pipelinen har bygget data igen.
+async fn tilvalg<T>(
+    hvad: &str,
+    laes: impl Future<Output = std::result::Result<T, String>>,
+) -> Option<T> {
+    match laes.await {
+        Ok(vaerdi) => Some(vaerdi),
+        Err(fejl) => {
+            eprintln!(
+                "dkmarkkort: {hvad} vises ikke: {fejl}; \
+                 det kommer, når pipelinen har bygget data igen"
+            );
+            None
+        }
     }
 }
 
@@ -171,6 +227,20 @@ impl Sproejtning {
         let database = pool(&sti).await?;
         let fejl = |hvad: &'static str| move |e: sqlx::Error| format!("{hvad}: {e}");
 
+        // Et klik slås op i R-træet i længde og bredde, så markerne skal
+        // ligge i WGS84.
+        let srs: i64 = sqlx::query_scalar(
+            "SELECT srs_id FROM gpkg_geometry_columns WHERE table_name = 'sproejtemarker'",
+        )
+        .fetch_one(&database)
+        .await
+        .map_err(fejl("sprøjtemarkernes projektion"))?;
+        if srs != 4326 {
+            return Err(format!(
+                "sprøjtemarkerne ligger i EPSG:{srs} og ikke i WGS84 (EPSG:4326)"
+            ));
+        }
+
         let perioder: Vec<u16> =
             sqlx::query_scalar("SELECT DISTINCT aar FROM sproejtemarker ORDER BY aar")
                 .fetch_all(&database)
@@ -223,6 +293,14 @@ impl Data {
     /// Læser det der ikke ændrer sig mens serveren kører, og holder
     /// forbindelserne åbne til opslagene.
     pub async fn aabn(mappe: &Path) -> std::result::Result<Self, String> {
+        let version = dataversion(mappe).await?;
+        if version != DATAVERSION {
+            return Err(format!(
+                "data er bygget i version {version}, men serveren viser version \
+                 {DATAVERSION}; venter på at pipelinen bygger nye"
+            ));
+        }
+
         let database = pool(&mappe.join(DATABASE_FIL)).await?;
         let tiles = pool(&mappe.join(TILES_FIL)).await?;
         let overblik = pool(&mappe.join(OVERBLIK_FIL)).await?;
@@ -284,22 +362,14 @@ impl Data {
         .map(|(cvr, marker)| Bedrift { cvr, marker })
         .collect();
 
-        // Navnene i kodelisten kom til sammen med sprøjtedata. Sprøjtedata
-        // fra tidligere år har kun koden, og navnet slås op her.
-        let afgroeder =
-            sqlx::query_as::<_, (i64, String)>("SELECT afgroedekode, afgroede FROM afgroedekode")
-                .fetch_all(&database)
-                .await
-                .map_err(|e| {
-                    format!(
-                        "{DATABASE_FIL} mangler afgrødernes navne ({e}) — \
-                 kør `cargo run -p dkmarkkort-pipeline` igen"
-                    )
-                })?
-                .into_iter()
-                .collect();
-
-        let sproejtning = Sproejtning::aabn(mappe).await?;
+        // Sprøjtedata fra tidligere år har kun afgrødekoden, og navnet slås
+        // op her. Uden navnene viser historikken kun koderne.
+        let afgroeder = tilvalg("afgrødernes navne", afgroeder(&database))
+            .await
+            .unwrap_or_default();
+        let sproejtning = tilvalg("sprøjtelaget", Sproejtning::aabn(mappe))
+            .await
+            .flatten();
 
         // Udstrækningen pr. mark kom til i en senere udgave af pipelinen. En
         // database uden den skal bygges igen, og det er bedre at sige det nu
@@ -329,6 +399,15 @@ impl Data {
     }
 }
 
+async fn afgroeder(database: &SqlitePool) -> std::result::Result<HashMap<i64, String>, String> {
+    let raekker =
+        sqlx::query_as::<_, (i64, String)>("SELECT afgroedekode, afgroede FROM afgroedekode")
+            .fetch_all(database)
+            .await
+            .map_err(|e| format!("{DATABASE_FIL}: {e}"))?;
+    Ok(raekker.into_iter().collect())
+}
+
 async fn pool(sti: &Path) -> std::result::Result<SqlitePool, String> {
     if !sti.exists() {
         return Err(format!(
@@ -345,4 +424,21 @@ async fn pool(sti: &Path) -> std::result::Result<SqlitePool, String> {
         )
         .await
         .map_err(|e| format!("kunne ikke åbne {}: {e}", sti.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn data_uden_versionsfil_er_version_1() {
+        assert_eq!(fortolk_dataversion(None), Ok(1));
+    }
+
+    #[test]
+    fn versionsfilen_er_et_tal() {
+        assert_eq!(fortolk_dataversion(Some("2\n")), Ok(2));
+        assert!(fortolk_dataversion(Some("to")).is_err());
+        assert!(fortolk_dataversion(Some("")).is_err());
+    }
 }
