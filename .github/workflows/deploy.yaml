@@ -45,6 +45,27 @@ jobs:
           docker image tag "$IMAGE:${{ github.sha }}" "$IMAGE:prod"
           docker image tag "$PIPELINE_IMAGE:${{ github.sha }}" "$PIPELINE_IMAGE:prod"
 
+      # Hvert deploy bygger to nye images. Når de nye er godkendt og mærket
+      # prod, slettes de ældre, så de ikke fylder op; de deployede er nu
+      # også dem der rulles tilbage til. Byggecachen fra den seneste uge
+      # beholdes, så næste build stadig er hurtigt. Fejler oprydningen, er
+      # deployet stadig lykkedes.
+      - name: Ryd gamle images
+        continue-on-error: true
+        env:
+          BEHOLD: ${{ github.sha }}
+        run: |
+          for billede in "$IMAGE" "$PIPELINE_IMAGE"; do
+            docker image ls "$billede" --format '{{.Tag}}' | while read -r tag; do
+              case "$tag" in
+                prod | "$BEHOLD" | "<none>") ;;
+                *) docker image rm "$billede:$tag" || true ;;
+              esac
+            done
+          done
+          docker image prune -f
+          docker builder prune -f --filter until=168h
+
       - name: Rollback til sidst kendte gode version
         if: failure() && steps.health.outcome == 'failure'
         env:

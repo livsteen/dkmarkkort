@@ -26,6 +26,16 @@ pub fn sproejtning_tiles_fil(aar: u16) -> String {
     format!("sproejtning-{aar}.mbtiles")
 }
 
+/// Året i et filnavn fra [`sproejtning_tiles_fil`], eller `None` hvis det
+/// ikke er en.
+pub fn sproejtning_tiles_aar(filnavn: &str) -> Option<u16> {
+    filnavn
+        .strip_prefix("sproejtning-")?
+        .strip_suffix(".mbtiles")?
+        .parse()
+        .ok()
+}
+
 /// Skrives af pipelinen sammen med data og indeholder [`DATAVERSION`].
 /// Data uden filen er version 1.
 pub const DATAVERSION_FIL: &str = "dataversion";
@@ -91,5 +101,16 @@ mod tests {
     fn hver_planperiode_har_sin_egen_tilesfil() {
         assert_eq!(sproejtning_tiles_fil(2024), "sproejtning-2024.mbtiles");
         assert_ne!(sproejtning_tiles_fil(2023), sproejtning_tiles_fil(2024));
+    }
+
+    #[test]
+    fn aaret_kan_laeses_tilbage_fra_filnavnet() {
+        assert_eq!(
+            sproejtning_tiles_aar(&sproejtning_tiles_fil(2024)),
+            Some(2024)
+        );
+        assert_eq!(sproejtning_tiles_aar("sproejtning.gpkg"), None);
+        assert_eq!(sproejtning_tiles_aar("marker.mbtiles"), None);
+        assert_eq!(sproejtning_tiles_aar("sproejtning-x.mbtiles"), None);
     }
 }

@@ -136,3 +136,63 @@ async fn laes_oplysninger(sti: &Path, url: &str) -> Result<Hentet> {
 fn mb(bytes: u64) -> u64 {
     bytes / 1024 / 1024
 }
+
+/// Sletter tidligere udgaver af en hentet fil i `mappe`, så de ikke fylder
+/// op: de filer hvis navn begynder med `praefiks`, men ikke med `behold`.
+/// Med dem går deres `.hentet`-fil og en `.part`-fil fra en download der
+/// blev afbrudt.
+pub async fn slet_tidligere(mappe: &Path, praefiks: &str, behold: &str) -> Result<()> {
+    let mut indhold = fs::read_dir(mappe).await?;
+    while let Some(post) = indhold.next_entry().await? {
+        let navn = post.file_name().to_string_lossy().into_owned();
+        if er_tidligere(&navn, praefiks, behold) && post.file_type().await?.is_file() {
+            println!("    sletter {navn}, som er erstattet");
+            fs::remove_file(post.path())
+                .await
+                .with_context(|| format!("kunne ikke slette {navn}"))?;
+        }
+    }
+    Ok(())
+}
+
+fn er_tidligere(navn: &str, praefiks: &str, behold: &str) -> bool {
+    navn.starts_with(praefiks) && !navn.starts_with(behold)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidste_aars_markkort_er_tidligere() {
+        for navn in [
+            "Marker_2025.zip",
+            "Marker_2025.zip.hentet",
+            "Marker_2025.part",
+        ] {
+            assert!(er_tidligere(navn, "Marker_", "Marker_2026."), "{navn}");
+        }
+        for navn in [
+            "Marker_2026.zip",
+            "Marker_2026.zip.hentet",
+            "Marker_2026.part",
+        ] {
+            assert!(!er_tidligere(navn, "Marker_", "Marker_2026."), "{navn}");
+        }
+        assert!(!er_tidligere(
+            "sproejtning-1.zip",
+            "Marker_",
+            "Marker_2026."
+        ));
+    }
+
+    #[test]
+    fn behold_skal_vaere_hele_navnet_foer_punktum() {
+        // Version 2107 er en anden end 21072131.
+        assert!(er_tidligere(
+            "sproejtning-2107.zip",
+            "sproejtning-",
+            "sproejtning-21072131."
+        ));
+    }
+}
