@@ -107,10 +107,12 @@ async fn kort(cx: &Cx) -> Result<impl View> {
     let kortdata = app_context::<Kortdata>(cx);
     let data = kortdata.hent();
     let fejlet = data.is_none() && kortdata.fejlet().await;
+    let nye_paa_vej = data.is_none() && kortdata.opdateres().await;
     Ok(view! {
         match data.as_deref() {
             Some(data) => kortside(data: data),
             None if fejlet => kunne_ikke_bygges(),
+            None if nye_paa_vej => opdateres(),
             None => bygges(),
         }
     })
@@ -127,6 +129,24 @@ async fn bygges() -> Result<impl View> {
                 <p class="mt-3 text-stone-600">
                     "Markerne hentes og gøres klar til kortet. Det tager et stykke tid "
                     "første gang. Prøv igen om lidt."
+                </p>
+            </main>
+        )
+    })
+}
+
+/// Vises i stedet for de gamle data, når en ny version af kortet ikke kan
+/// vise dem, mens pipelinen bygger nye.
+#[component]
+async fn opdateres() -> Result<impl View> {
+    Ok(view! {
+        dokument(
+            titel: "Markkort",
+            <main class="mx-auto max-w-2xl px-5 py-10 leading-relaxed text-stone-800">
+                <h1 class="text-3xl font-semibold">"Kortdata opdateres"</h1>
+                <p class="mt-3 text-stone-600">
+                    "Kortet har fået en ny version, der kræver nye data. De bygges nu, "
+                    "og det tager omkring en halv time. Prøv igen om lidt."
                 </p>
             </main>
         )

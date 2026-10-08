@@ -26,6 +26,23 @@ pub fn sproejtning_tiles_fil(aar: u16) -> String {
     format!("sproejtning-{aar}.mbtiles")
 }
 
+/// Skrives af pipelinen sammen med data og indeholder [`DATAVERSION`].
+/// Data uden filen er version 1.
+pub const DATAVERSION_FIL: &str = "dataversion";
+
+/// Versionen af de data pipelinen bygger. En server viser kun data i sin
+/// egen version.
+///
+/// Tælles op ved en breaking change: når noget serveren bruger, ændres så
+/// data bygget før ændringen ikke kan vises eller ville vise noget forkert,
+/// fx en kolonne der får ny betydning, eller oversigtens pixels der kodes
+/// anderledes. Så viser en nydeployet server "Kortdata opdateres", indtil
+/// pipelinen har bygget nye data.
+///
+/// Noget der kommer til, er ikke en breaking change. Serveren læser det som
+/// et tilvalg og viser de gamle data uden, indtil pipelinen har bygget det.
+pub const DATAVERSION: u32 = 1;
+
 /// Skrives af pipelinen, når alle filerne ovenfor er på plads, og
 /// indeholder tidspunktet. En server der holder øje med den, åbner aldrig en
 /// blanding af gamle og nye filer.

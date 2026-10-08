@@ -154,6 +154,21 @@ Pipeline-containeren tjekker én gang i døgnet, om data skal bygges, se
 Fejler en kørsel, prøves der igen om en time, og kortet viser imens de data
 det har.
 
+**Nye versioner og gamle data.** Når en ny version deployes, ligger de gamle
+data, mens pipelinen bygger nye, og serveren viser dem så godt den kan.
+Kernen skal kunne læses: markerne, deres tiles, oversigten, landsdelene og
+bedrifterne. Alt andet er tilvalg. Mangler et tilvalg, eller er det bygget af
+en ældre pipeline, vises kortet uden det, og årsagen logges. Nye lag og
+kolonner skal derfor læses som tilvalg i `crates/server/src/data.rs`.
+
+En breaking change i data kræver, at `DATAVERSION` i `crates/core/src/lib.rs`
+tælles op. Det er en ændring af noget serveren bruger, så data bygget før
+ændringen ikke kan vises eller ville vise noget forkert, fx en kolonne der
+får ny betydning, eller oversigtens pixels der kodes anderledes. Pipelinen
+skriver versionen i `data/dataversion`, og serveren viser kun data i sin egen
+version. Ellers står der "Kortdata opdateres", indtil pipelinen har bygget
+nye data. Data uden versionsfil er version 1.
+
 Volumet fylder omkring 14 GB: de hentede zip-filer 3 GB, markernes filer
 1,2 GB, sprøjtningens 5,2 GB og pipelinens mellemfiler resten. En kørsel tager
 omkring 20 minutter, og pipelinen selv bruger op til 2 GB hukommelse.

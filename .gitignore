@@ -7,3 +7,4 @@
 /data/*.gpkg
 /data/*.mbtiles
 /data/bygget
+/data/dataversion

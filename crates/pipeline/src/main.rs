@@ -42,8 +42,8 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use dkmarkkort_core::{
-    BYGGET_FIL, DATABASE_FIL, OVERBLIK_FIL, SPROEJTNING_DATABASE_FIL, TILES_FIL, TILES_LAG,
-    UDEN_CVR, gruppe::Gruppe, kilder, sproejtning_tiles_fil,
+    BYGGET_FIL, DATABASE_FIL, DATAVERSION, DATAVERSION_FIL, OVERBLIK_FIL, SPROEJTNING_DATABASE_FIL,
+    TILES_FIL, TILES_LAG, UDEN_CVR, gruppe::Gruppe, kilder, sproejtning_tiles_fil,
 };
 use jiff::Timestamp;
 use sqlx::{Connection, SqliteConnection, sqlite::SqliteConnectOptions};
@@ -392,6 +392,7 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
             fs::rename(tiles, data.join(sproejtning_tiles_fil(*aar))).await?;
         }
     }
+    fs::write(data.join(DATAVERSION_FIL), DATAVERSION.to_string()).await?;
     fs::write(data.join(BYGGET_FIL), Timestamp::now().to_string()).await?;
 
     opsummer(&data.join(DATABASE_FIL)).await?;
