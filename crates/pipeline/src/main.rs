@@ -27,6 +27,11 @@
 //! Resultatfilerne bygges i `work` og flyttes først når alle er færdige, så
 //! en kørende server aldrig åbner en halv fil. Til sidst skrives `bygget`
 //! med tidspunktet, som tegn på at alle er på plads.
+//!
+//! Det de nye data erstatter, slettes, så datamappen ikke vokser fra kørsel
+//! til kørsel: tidligere udgaver af det hentede, tiles for planperioder der
+//! ikke er med længere, og `work`, som bygges forfra hver gang. Fejler en
+//! kørsel, bliver `work` liggende, så den kan fejlsøges.
 
 mod afgroedekoder;
 mod hent;
@@ -50,7 +55,7 @@ use sqlx::{Connection, SqliteConnection, sqlite::SqliteConnectOptions};
 use tokio::fs;
 
 use crate::{
-    hent::{Hentet, hent},
+    hent::{Hentet, hent, slet_tidligere},
     udpak::udpak,
     vaerktoej::{ogr2ogr, ogrinfo_sql, ogrinfo_sqlite, tippecanoe},
 };
@@ -128,6 +133,8 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
         &zip,
     )
     .await?;
+    // Et andet års markkort bruges ikke længere.
+    slet_tidligere(&raw, "Marker_", &format!("Marker_{aar}.")).await?;
     let udpakket = work.join(format!("marker-{aar}"));
     udpak(&zip, &udpakket).await?;
     let shapefil = find_shapefil(&udpakket).await?;
@@ -396,6 +403,14 @@ async fn koer(indstillinger: &Indstillinger) -> Result<()> {
     fs::write(data.join(BYGGET_FIL), Timestamp::now().to_string()).await?;
 
     opsummer(&data.join(DATABASE_FIL)).await?;
+
+    println!("==> Rydder op");
+    if let Some(sproejtning) = &sproejtning {
+        sproejtning::slet_forsvundne_tiles(data, sproejtning).await?;
+    }
+    fs::remove_dir_all(&work)
+        .await
+        .with_context(|| format!("kunne ikke slette {}", work.display()))?;
     Ok(())
 }
 

@@ -169,9 +169,19 @@ skriver versionen i `data/dataversion`, og serveren viser kun data i sin egen
 version. Ellers står der "Kortdata opdateres", indtil pipelinen har bygget
 nye data. Data uden versionsfil er version 1.
 
-Volumet fylder omkring 14 GB: de hentede zip-filer 3 GB, markernes filer
-1,2 GB, sprøjtningens 5,2 GB og pipelinens mellemfiler resten. En kørsel tager
-omkring 20 minutter, og pipelinen selv bruger op til 2 GB hukommelse.
+**Oprydning.** Det, de nye data erstatter, slettes, så volumet ikke vokser
+fra kørsel til kørsel: et andet års markkort og tidligere versioner af
+sprøjtedata i `raw/`, tiles for planperioder der ikke er med længere, og
+`work/`, når en kørsel er lykkedes. Fejler den, bliver `work/` liggende til
+fejlsøgning. Serveren slipper de gamle filer, når den har åbnet de nye. Efter
+et vellykket deploy sletter workflowet de ældre images og byggecache der er
+mere end en uge gammel.
+
+Mellem kørslerne fylder volumet omkring 9 GB: de hentede zip-filer 3 GB,
+markernes filer 1,2 GB og sprøjtningens 5,2 GB. Under en kørsel ligger de
+gamle data, mens de nye bygges ved siden af, og volumet når op på omkring
+25 GB. En kørsel tager omkring 20 minutter, og pipelinen selv bruger op til
+2 GB hukommelse.
 
 Data bygget lokalt kan også mountes direkte:
 

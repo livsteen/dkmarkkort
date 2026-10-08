@@ -33,7 +33,7 @@ use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use dkmarkkort_core::{
     ENHED_KG, ENHED_LITER, SPROEJTNING_DATABASE_FIL, SPROEJTNING_LAG, kilder, planperiode,
-    sproejtning_tiles_fil,
+    sproejtning_tiles_aar, sproejtning_tiles_fil,
 };
 use parquet::{
     file::reader::{FileReader, SerializedFileReader},
@@ -48,7 +48,7 @@ use sqlx::{
 use zip::ZipArchive;
 
 use crate::{
-    hent::{Hentet, hent, klient},
+    hent::{Hentet, hent, klient, slet_tidligere},
     slet, utf8,
     vaerktoej::{ogr2ogr, ogrinfo_sql, tippecanoe},
 };
@@ -136,7 +136,8 @@ pub async fn byg(data: &Path, raw: &Path, work: &Path, genbrug: bool) -> Result<
 
     let zip = raw.join(format!("sproejtning-{}.zip", version.id));
     let hentet = hent(&url, &zip).await?;
-    slet_andre_versioner(raw, &zip).await?;
+    // Tidligere versioner fylder 2–3 GB hver og bruges ikke igen.
+    slet_tidligere(raw, "sproejtning-", &format!("sproejtning-{}.", version.id)).await?;
     let perioder = laes_blokerende(&zip, planperioder).await?;
     if perioder.is_empty() {
         bail!("{} har ingen planperioder", zip.display());
@@ -250,22 +251,16 @@ async fn bygget_fra(database: &Path) -> Result<Option<String>> {
     Ok(url)
 }
 
-/// Sletter tidligere versioner af datasættet i `raw`. De fylder 2–3 GB
-/// hver og bruges ikke igen.
-async fn slet_andre_versioner(raw: &Path, zip: &Path) -> Result<()> {
-    let zip_navn = zip
-        .file_name()
-        .and_then(|navn| navn.to_str())
-        .context("zip'en har intet navn")?;
-    let behold = [zip_navn.to_owned(), format!("{zip_navn}.hentet")];
-    let mut indhold = tokio::fs::read_dir(raw).await?;
+/// Sletter tiles i `data` for planperioder, der ikke er med i de nye
+/// sprøjtedata. Kaldes når de nye er flyttet på plads.
+pub async fn slet_forsvundne_tiles(data: &Path, bygget: &Bygget) -> Result<()> {
+    let mut indhold = tokio::fs::read_dir(data).await?;
     while let Some(post) = indhold.next_entry().await? {
         let navn = post.file_name().to_string_lossy().into_owned();
-        let tidligere = navn.starts_with("sproejtning-")
-            && (navn.ends_with(".zip") || navn.ends_with(".zip.hentet"))
-            && !behold.contains(&navn);
-        if tidligere {
-            println!("    sletter {navn}, som er en tidligere version");
+        let forsvundet = sproejtning_tiles_aar(&navn)
+            .is_some_and(|aar| !bygget.tiles.iter().any(|(med, _)| *med == aar));
+        if forsvundet {
+            println!("    sletter {navn}, hvis planperiode ikke er med længere");
             slet(&post.path()).await?;
         }
     }
