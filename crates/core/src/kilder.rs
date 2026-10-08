@@ -111,10 +111,11 @@ pub const ESRI_WORLD_IMAGERY: Kilde = Kilde {
 };
 
 /// Rækkefølgen på `/kilder`.
-pub const ALLE: [&Kilde; 5] = [
+pub const ALLE: [&Kilde; 6] = [
     &MARKER,
     &AFGROEDEKODER,
     &LANDSDELE,
+    &SPROEJTNING,
     &OPENSTREETMAP,
     &ESRI_WORLD_IMAGERY,
 ];

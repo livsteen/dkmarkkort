@@ -19,6 +19,9 @@ const AFKLAREDE: [(u32, Gruppe); 1] = [
 
 pub struct Afgroedekode {
     pub kode: u32,
+    /// Står koden under flere afsnit, kan navnet være skrevet forskelligt;
+    /// det første i oversigten bruges.
+    pub afgroede: String,
     /// Afsnittene koden står under, adskilt af " / " hvis flere.
     pub afsnit: String,
     pub gruppe: Gruppe,
@@ -32,20 +35,26 @@ pub fn laes(sti: &Path) -> Result<Vec<Afgroedekode>> {
         )
     })?;
 
-    let mut pr_kode = BTreeMap::<u32, BTreeSet<String>>::new();
+    let mut pr_kode = BTreeMap::<u32, (String, BTreeSet<String>)>::new();
     for raekke in laeser.records() {
         let raekke = raekke?;
-        let (Some(kode), Some(afsnit)) = (raekke.get(0), raekke.get(2)) else {
+        let (Some(kode), Some(afgroede), Some(afsnit)) =
+            (raekke.get(0), raekke.get(1), raekke.get(2))
+        else {
             bail!("{}: række med for få kolonner", sti.display());
         };
         let kode: u32 = kode
             .parse()
             .with_context(|| format!("ugyldig afgrødekode {kode:?}"))?;
-        pr_kode.entry(kode).or_default().insert(afsnit.to_owned());
+        pr_kode
+            .entry(kode)
+            .or_insert_with(|| (afgroede.to_owned(), BTreeSet::new()))
+            .1
+            .insert(afsnit.to_owned());
     }
 
     let mut koder = Vec::with_capacity(pr_kode.len());
-    for (kode, afsnit) in pr_kode {
+    for (kode, (afgroede, afsnit)) in pr_kode {
         let mut grupper = BTreeSet::new();
         for navn in &afsnit {
             let gruppe = gruppe_for_afsnit(navn).with_context(|| {
@@ -66,6 +75,7 @@ pub fn laes(sti: &Path) -> Result<Vec<Afgroedekode>> {
         };
         koder.push(Afgroedekode {
             kode,
+            afgroede,
             afsnit: afsnit.into_iter().collect::<Vec<_>>().join(" / "),
             gruppe,
         });
@@ -73,12 +83,18 @@ pub fn laes(sti: &Path) -> Result<Vec<Afgroedekode>> {
     Ok(koder)
 }
 
-/// Én række pr. kode, klar til at joine markerne mod.
+/// Én række pr. kode, klar til at joine markerne mod. Navnet kommer med,
+/// så sprøjtedata fra tidligere år kan vise afgrødens navn ud fra koden.
 pub fn skriv_opslag(koder: &[Afgroedekode], sti: &Path) -> Result<()> {
     let mut skriver = csv::Writer::from_path(sti)?;
-    skriver.write_record(["afgroedekode", "afsnit", "gruppe"])?;
+    skriver.write_record(["afgroedekode", "afgroede", "afsnit", "gruppe"])?;
     for kode in koder {
-        skriver.write_record([&kode.kode.to_string(), &kode.afsnit, kode.gruppe.noegle()])?;
+        skriver.write_record([
+            &kode.kode.to_string(),
+            &kode.afgroede,
+            &kode.afsnit,
+            kode.gruppe.noegle(),
+        ])?;
     }
     skriver.flush()?;
     Ok(())
@@ -103,6 +119,7 @@ mod tests {
         assert_eq!(koder.len(), 1);
         assert_eq!(koder[0].gruppe, Gruppe::NaturOgMiljoetilsagn);
         assert!(koder[0].afsnit.contains(" / "));
+        assert_eq!(koder[0].afgroede, "A");
     }
 
     #[test]

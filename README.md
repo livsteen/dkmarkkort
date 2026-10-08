@@ -1,7 +1,8 @@
 # dkmarkkort
 
 Kort over de marker landmændene har indberettet til Landbrugsstyrelsen, farvet
-efter afgrødegruppe og med filter på landsdel og gruppe.
+efter afgrødegruppe og med filter på landsdel og gruppe, og over hvad der er
+sprøjtet på markerne.
 
 ## Sådan hænger det sammen
 
@@ -17,8 +18,8 @@ filer i `data/`. Markdelen henter årets markkort fra LandbrugsGIS og bygger tre
 SQLite-filer:
 
 - `markkort.gpkg` (GeoPackage) med alle marker, deres afgrødekode, afsnit og
-  afgrødegruppe og den landsdel de ligger i, samt landsdelene, kodelisten og
-  hvornår data er hentet.
+  afgrødegruppe og den landsdel de ligger i, samt landsdelene, kodelisten med
+  afgrødernes navne og hvornår data er hentet.
 - `marker.mbtiles` med markerne som vektortiles fra zoom 10 til 14, med
   alle marker i hver tile. En mark bærer kun sit id, sin gruppe og sin
   landsdel; resten står i databasen.
@@ -57,7 +58,8 @@ versioner. Den bygger:
 - `sproejtning.gpkg` med de sprøjtede marker for hver planperiode, hvad der
   er brugt på dem, og midlerne. Hver mark har sin belastning pr. hektar
   (mængden af hvert middel gange middelets belastning, lagt sammen og delt
-  med arealet), antal midler og om der er brugt PFAS-midler.
+  med arealet), antal midler og om der er brugt PFAS-midler. Markerne ligger
+  i WGS84, så serveren kan slå et klik på kortet op i GeoPackage'ens R-træ.
 - `sproejtning-<år>.mbtiles` for hver planperiode, med markernes id og
   belastning fra zoom 10 til 14. Året er det år planperioden begynder.
 
@@ -67,10 +69,12 @@ rettes datasættets kendte fejl: geometrien er mærket WGS84 men er UTM32, og de
 ældste år har samme mark flere gange. Pipelinen skriver for hver planperiode,
 hvor mange marker og sprøjtninger der kom med, og hvad der blev sprunget over.
 
-**Serveren** læser markernes tre filer skrivebeskyttet, renderer siderne og leverer
-vektortiles på `/tiles/{z}/{x}/{y}` og oversigten på `/overblik/{z}/{x}/{y}`.
-Kortet i browseren er OpenLayers, som ligger i
-`crates/server/assets/vendor/openlayers/`.
+**Serveren** læser filerne skrivebeskyttet, renderer siderne og leverer
+vektortiles på `/tiles/{z}/{x}/{y}`, oversigten på `/overblik/{z}/{x}/{y}` og de
+sprøjtede marker for en planperiode på `/sproejtning/{aar}/{z}/{x}/{y}`. Kortet
+i browseren er OpenLayers, som ligger i
+`crates/server/assets/vendor/openlayers/`. Har pipelinen ikke bygget
+sprøjtedata, vises kortet uden sprøjtelaget.
 
 Zoomet ud er markerne for mange til at tegne hver for sig, så kortet viser
 oversigten og farver dens pixels efter gruppe i et WebGL-lag. Fra zoom 11
@@ -83,6 +87,17 @@ panel for sig. En bedrift findes på de første cifre af sit CVR-nummer
 marknummer eller afgrøde. Begge paneler kan trækkes rundt i deres hoved.
 Marker indberettet uden CVR-nummer samler pipelinen under CVR `00000000`, så de
 kan søges frem som én bedrift. Kortet viser nummeret som "uden CVR-nummer".
+
+**Sprøjtelaget** slås til med en kontakt i panelet og viser de sprøjtede marker
+for den planperiode, der er valgt, farvet efter belastning pr. hektar i fem
+klasser. Markerne bliver så grå flader under laget. Laget tegnes fra zoom 11,
+ligesom markerne. Er det tændt, viser et klik på en mark også, hvad der er
+sprøjtet på stedet i hver planperiode, med den afgrøde der voksede der, og
+midlerne med mængde og belastning pr. hektar. Kortet spørger
+`/sproejtning/sted?lon=&lat=`, og serveren finder markerne i R-træet og afgør
+selv, om punktet ligger inde i dem (`crates/server/src/geometri.rs`).
+Afgrødernes navne er fra årets kodeliste, som kender næsten alle tidligere
+koder.
 
 ## Kom i gang
 

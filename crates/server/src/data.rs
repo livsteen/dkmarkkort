@@ -6,17 +6,22 @@
 //! sidste forespørgsel har sluppet den.
 //!
 //! Det der ikke ændrer sig og bruges ved hvert opslag, læses én gang ved
-//! start: landsdelene, optællingerne og listen over bedrifter.
+//! start: landsdelene, optællingerne, listen over bedrifter og
+//! afgrødekodernes navne.
+//!
+//! Sprøjtedata er med, når pipelinen har bygget dem; ellers vises kortet
+//! uden sprøjtelaget.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::{Arc, PoisonError, RwLock},
     time::Duration,
 };
 
 use dkmarkkort_core::{
-    BYGGET_FIL, DATABASE_FIL, FEJLET_FIL, OVERBLIK_FIL, TILES_FIL, gruppe::Gruppe, kilder,
+    BYGGET_FIL, DATABASE_FIL, FEJLET_FIL, OVERBLIK_FIL, SPROEJTNING_DATABASE_FIL, TILES_FIL,
+    gruppe::Gruppe, kilder, sproejtning_tiles_fil,
 };
 use sqlx::{
     SqlitePool,
@@ -141,6 +146,57 @@ pub struct Udgave {
     pub sidst_aendret: String,
 }
 
+/// Hvilken version af sprøjtedata der vises.
+pub struct SproejtningUdgave {
+    pub url: String,
+    pub hentet: String,
+}
+
+/// Sprøjtedata: de sprøjtede marker for hver planperiode og deres tiles.
+pub struct Sproejtning {
+    pub database: SqlitePool,
+    /// Tiles'ene for hver planperiode, efter det år perioden begynder.
+    pub tiles: BTreeMap<u16, SqlitePool>,
+    pub udgave: Option<SproejtningUdgave>,
+}
+
+impl Sproejtning {
+    /// Åbner sprøjtedata i `mappe`, eller `None` hvis pipelinen ikke har
+    /// bygget dem.
+    async fn aabn(mappe: &Path) -> std::result::Result<Option<Self>, String> {
+        let sti = mappe.join(SPROEJTNING_DATABASE_FIL);
+        if !sti.exists() {
+            return Ok(None);
+        }
+        let database = pool(&sti).await?;
+        let fejl = |hvad: &'static str| move |e: sqlx::Error| format!("{hvad}: {e}");
+
+        let perioder: Vec<u16> =
+            sqlx::query_scalar("SELECT DISTINCT aar FROM sproejtemarker ORDER BY aar")
+                .fetch_all(&database)
+                .await
+                .map_err(fejl("planperioder"))?;
+        let mut tiles = BTreeMap::new();
+        for aar in perioder {
+            tiles.insert(aar, pool(&mappe.join(sproejtning_tiles_fil(aar))).await?);
+        }
+
+        let udgave =
+            sqlx::query_as::<_, (String, String)>("SELECT url, hentet FROM datakilde WHERE id = ?")
+                .bind(kilder::SPROEJTNING.id)
+                .fetch_optional(&database)
+                .await
+                .map_err(fejl("sprøjtningens datakilde"))?
+                .map(|(url, hentet)| SproejtningUdgave { url, hentet });
+
+        Ok(Some(Sproejtning {
+            database,
+            tiles,
+            udgave,
+        }))
+    }
+}
+
 /// En bedrift med marker på kortet.
 pub struct Bedrift {
     pub cvr: String,
@@ -158,6 +214,9 @@ pub struct Data {
     pub marker_i_alt: i64,
     pub marker_pr_gruppe: HashMap<Gruppe, i64>,
     pub udgave: Option<Udgave>,
+    /// Afgrødens navn for hver kode i årets kodeliste.
+    pub afgroeder: HashMap<i64, String>,
+    pub sproejtning: Option<Sproejtning>,
 }
 
 impl Data {
@@ -225,6 +284,23 @@ impl Data {
         .map(|(cvr, marker)| Bedrift { cvr, marker })
         .collect();
 
+        // Navnene i kodelisten kom til sammen med sprøjtedata. Sprøjtedata
+        // fra tidligere år har kun koden, og navnet slås op her.
+        let afgroeder =
+            sqlx::query_as::<_, (i64, String)>("SELECT afgroedekode, afgroede FROM afgroedekode")
+                .fetch_all(&database)
+                .await
+                .map_err(|e| {
+                    format!(
+                        "{DATABASE_FIL} mangler afgrødernes navne ({e}) — \
+                 kør `cargo run -p dkmarkkort-pipeline` igen"
+                    )
+                })?
+                .into_iter()
+                .collect();
+
+        let sproejtning = Sproejtning::aabn(mappe).await?;
+
         // Udstrækningen pr. mark kom til i en senere udgave af pipelinen. En
         // database uden den skal bygges igen, og det er bedre at sige det nu
         // end ved første klik.
@@ -247,6 +323,8 @@ impl Data {
             marker_i_alt,
             marker_pr_gruppe,
             udgave,
+            afgroeder,
+            sproejtning,
         })
     }
 }

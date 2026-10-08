@@ -6,8 +6,10 @@
 //! (standard: 127.0.0.1:3000).
 
 mod data;
+mod geometri;
 mod opslag;
 mod sider;
+mod sproejtning;
 mod tiles;
 
 use std::{path::PathBuf, process::exit};
