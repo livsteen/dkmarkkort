@@ -289,7 +289,8 @@ fn planperioder<R: Read + Seek>(arkiv: &mut ZipArchive<R>) -> Result<Vec<u16>> {
         arkiv
             .file_names()
             .filter_map(|navn| {
-                navn.strip_prefix(mappe)?
+                navn.ok()?
+                    .strip_prefix(mappe)?
                     .strip_suffix("/part-000.parquet")?
                     .parse()
                     .ok()
