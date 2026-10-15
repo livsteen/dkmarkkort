@@ -7,7 +7,7 @@
 #   docker run --rm -p 3000:3000 -v "$PWD/data:/data:ro" dkmarkkort
 
 # ---- Byg --------------------------------------------------------------------
-FROM rust:1.98-trixie AS byg
+FROM rust:1.99-trixie AS byg
 
 # topcoat-CLI'en samler assets (OpenLayers, markkort.js og det genererede
 # Tailwind-stylesheet) i den mappe serveren læser dem fra.
