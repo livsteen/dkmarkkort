@@ -11,7 +11,7 @@ FROM rust:1.99-trixie AS byg
 
 # topcoat-CLI'en samler assets (OpenLayers, markkort.js og det genererede
 # Tailwind-stylesheet) i den mappe serveren læser dem fra.
-RUN cargo install topcoat-cli --version 0.9.0 --locked
+RUN cargo install topcoat-cli --version 0.10.0 --locked
 
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
